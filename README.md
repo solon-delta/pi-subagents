@@ -42,9 +42,6 @@ The `name` key selects the agent. A file without that key is named after its
 file stem, so `explorer.md` is the agent `explorer`. A file in an earlier root
 shadows a file of the same agent name in a later root.
 
-CI runs the same commands as the Makefile on a pinned Node version. It does not
-use the container, so the Node version lives in two files.
-
 ## Run state
 
 Each run gets a directory under the session directory:
@@ -54,8 +51,10 @@ time, the end time, and the status. Nothing is deleted.
 
 ## Development
 
-`make check` runs the type check. `make test` runs the tests. `make lint` runs
-oxlint. All three run in a container.
+`make install` installs the dependencies. `make check` runs the type check.
+`make test` runs every test, `make test-unit` and `make test-integration` run
+one half each. `make lint` runs oxlint. Every target runs in a container, and
+CI calls the same targets.
 
 `PI_SUBAGENTS_PI_BIN` selects the pi executable. It is the seam the integration
 test uses to run a fake child.

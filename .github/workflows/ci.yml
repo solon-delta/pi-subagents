@@ -4,20 +4,20 @@ on:
   push:
   pull_request:
 
+# Every step runs in the container the Makefile pins, which is what a
+# maintainer runs locally. The runner supplies podman.
 jobs:
   check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 26.5
-      - run: npm ci
+      - name: Install dependencies
+        run: make install
       - name: Type check
-        run: npx tsc --noEmit
+        run: make check
       - name: Unit tests
-        run: node --test "test/*.test.ts"
+        run: make test-unit
       - name: Integration tests
-        run: node --test "test/integration/*.test.ts"
+        run: make test-integration
       - name: Lint
-        run: npx oxlint
+        run: make lint
