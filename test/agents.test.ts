@@ -50,6 +50,29 @@ test("an unknown agent name fails with the available names", () => {
   assert.throws(() => loadAgent("typo", agents), /typo.*reviewer, scout/s);
 });
 
+test("the frontmatter name selects the agent, not the file stem", () => {
+  const root = mkdtempSync(join(tmpdir(), "agents-"));
+  writeFileSync(
+    join(root, "reviewer.md"),
+    "---\nname: strict-reviewer\ndescription: d\ntools: [read]\n---\nBody.\n",
+  );
+
+  const agents = discoverAgents([root]);
+
+  assert.deepEqual([...agents.keys()], ["strict-reviewer"]);
+  assert.equal(loadAgent("strict-reviewer", agents).name, "strict-reviewer");
+});
+
+test("an unusable file is listed under its stem and fails on launch", () => {
+  const root = mkdtempSync(join(tmpdir(), "agents-"));
+  writeFileSync(join(root, "broken.md"), "---\ndescription: d\n---\nNo tools key.\n");
+
+  const agents = discoverAgents([root]);
+
+  assert.deepEqual([...agents.keys()], ["broken"]);
+  assert.throws(() => loadAgent("broken", agents), /tools.*broken\.md/s);
+});
+
 test("the bundled root ships a usable agent", () => {
   const bundled = agentRoots("/project", "/home/user")[2];
 

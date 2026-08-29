@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { type AgentDefinition, parseAgentFile } from "./agent-file.ts";
@@ -11,6 +11,16 @@ export function agentRoots(cwd: string, home: string): string[] {
     join(home, ".pi", "agent", "agents"),
     fileURLToPath(new URL("../agents", import.meta.url)),
   ];
+}
+
+function agentName(file: string): string {
+  try {
+    return parseAgentFile(file, readFileSync(file, "utf8")).name;
+  } catch {
+    // An unusable file keeps its file stem, so it stays visible in the list and
+    // the launch reports the real error.
+    return basename(file, ".md");
+  }
 }
 
 /** Map an agent name to its file. An earlier root shadows a later one. */
@@ -26,8 +36,9 @@ export function discoverAgents(roots: string[]): Map<string, string> {
     }
     for (const entry of entries) {
       if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
-      const name = entry.name.slice(0, -".md".length);
-      if (!agents.has(name)) agents.set(name, join(root, entry.name));
+      const file = join(root, entry.name);
+      const name = agentName(file);
+      if (!agents.has(name)) agents.set(name, file);
     }
   }
 

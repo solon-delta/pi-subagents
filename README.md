@@ -38,9 +38,9 @@ Agent files are read from three roots, in this order.
 - `~/.pi/agent/agents/` for the user
 - `agents/` in this package
 
-A file in an earlier root shadows a file of the same name in a later root. The
-`subagent` tool selects an agent by file stem, so `explorer.md` is the agent
-`explorer`. The `name` key only sets the name that reports use.
+The `name` key selects the agent. A file without that key is named after its
+file stem, so `explorer.md` is the agent `explorer`. A file in an earlier root
+shadows a file of the same agent name in a later root.
 
 CI runs the same commands as the Makefile on a pinned Node version. It does not
 use the container, so the Node version lives in two files.
