@@ -1,14 +1,15 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 
 import { type AgentDefinition, parseAgentFile } from "./agent-file.ts";
 
 /** The three roots, in shadowing order: project, user, bundled. */
 export function agentRoots(cwd: string, home: string): string[] {
   return [
-    join(cwd, ".pi", "agents"),
-    join(home, ".pi", "agent", "agents"),
+    join(cwd, CONFIG_DIR_NAME, "agents"),
+    join(home, CONFIG_DIR_NAME, "agent", "agents"),
     fileURLToPath(new URL("../agents", import.meta.url)),
   ];
 }
