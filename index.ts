@@ -1,43 +1,68 @@
+import { homedir } from "node:os";
+import { join } from "node:path";
+
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
+import { agentRoots, discoverAgents, loadAgent } from "./src/agents.ts";
+import { startRun } from "./src/run.ts";
+
+const DESCRIPTION = [
+  "Delegate a task to a named subagent that runs in its own pi process.",
+  "The tool returns a run id at once and the child works in the background.",
+  "Do not poll for the result. The answer arrives on its own as a new turn.",
+].join(" ");
+
 export default function (pi: ExtensionAPI) {
-  // React to events
-  pi.on("session_start", async (_event, ctx) => {
-    ctx.ui.notify("Extension loaded!", "info");
-  });
-
-  pi.on("tool_call", async (event, ctx) => {
-    // SAFETY: the branch below reads `command` only when `toolName` is "bash",
-    // and the bash tool always passes a string `command` in its input.
-    const input = event.input as { command?: string };
-    if (event.toolName === "bash" && input.command?.includes("rm -rf")) {
-      const ok = await ctx.ui.confirm("Dangerous!", "Allow rm -rf?");
-      if (!ok) return { block: true, reason: "Blocked by user" };
-    }
-  });
-
-  // Register a custom tool
   pi.registerTool({
-    name: "greet",
-    label: "Greet",
-    description: "Greet someone by name",
+    name: "subagent",
+    label: "Subagent",
+    description: DESCRIPTION,
     parameters: Type.Object({
-      name: Type.String({ description: "Name to greet" }),
+      agent: Type.String({ description: "Name of the agent file to run" }),
+      task: Type.String({ description: "The complete task text for the subagent" }),
     }),
-    async execute(toolCallId, params, signal, onUpdate, ctx) {
-      return {
-        content: [{ type: "text", text: `Hello, ${params.name}!` }],
-        details: {},
-      };
-    },
-  });
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const agent = loadAgent(params.agent, discoverAgents(agentRoots(ctx.cwd, homedir())));
+      const runsDir = join(
+        ctx.sessionManager.getSessionDir(),
+        "subagents",
+        ctx.sessionManager.getSessionId(),
+      );
 
-  // Register a command
-  pi.registerCommand("hello", {
-    description: "Say hello",
-    handler: async (args, ctx) => {
-      ctx.ui.notify(`Hello ${args || "world"}!`, "info");
+      const started = startRun({
+        agent,
+        task: params.task,
+        cwd: ctx.cwd,
+        runsDir,
+        env: process.env,
+      });
+
+      started.finished
+        .then((outcome) => {
+          pi.sendMessage(
+            {
+              customType: "subagent_result",
+              content: outcome.message,
+              display: true,
+              details: outcome.record,
+            },
+            { triggerTurn: true, deliverAs: "steer" },
+          );
+        })
+        .catch((error: Error) => {
+          ctx.ui.notify(`Subagent run ${started.id} was lost: ${error.message}`, "error");
+        });
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Started subagent "${agent.name}" as run ${started.id}. Do not poll for the result.`,
+          },
+        ],
+        details: { runId: started.id, dir: started.dir },
+      };
     },
   });
 }
