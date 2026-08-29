@@ -1,7 +1,6 @@
 name: CI
 
 on:
-  push:
   pull_request:
 
 # Every step runs in the container the Makefile pins, which is what a
