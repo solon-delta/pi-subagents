@@ -54,12 +54,16 @@ export function startRun(options: RunOptions): StartedRun {
   const transcript = join(dir, "transcript.jsonl");
   writeFileSync(transcript, "");
 
-  const args = childArguments(options.agent, options.task);
+  const args = childArguments(options.agent);
   const child = spawn(piExecutable(options.env), args, {
     cwd: options.cwd,
     env: options.env,
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: ["pipe", "pipe", "pipe"],
   });
+
+  // The task goes on stdin. See the comment on childArguments.
+  child.stdin.on("error", () => {});
+  child.stdin.end(options.task);
 
   const lines: string[] = [];
   const errors: string[] = [];

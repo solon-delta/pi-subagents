@@ -26,6 +26,7 @@ function environment(runsDir: string, exit: string): NodeJS.ProcessEnv {
     ...process.env,
     PI_SUBAGENTS_PI_BIN: fakePi,
     FAKE_PI_ARGV_OUT: join(runsDir, "argv.json"),
+    FAKE_PI_STDIN_OUT: join(runsDir, "stdin.txt"),
     FAKE_PI_EXIT: exit,
   };
 }
@@ -58,9 +59,8 @@ test("a run drives the fake child and reports its answer", async () => {
     "anthropic/claude-sonnet-5",
     "--system-prompt",
     "You review code.",
-    "--",
-    "Review the diff",
   ]);
+  assert.equal(readFileSync(join(runsDir, "stdin.txt"), "utf8"), "Review the diff");
 
   const transcript = readFileSync(join(started.dir, "transcript.jsonl"), "utf8").trim().split("\n");
   assert.equal(transcript.length, 4);
@@ -77,6 +77,23 @@ test("a run drives the fake child and reports its answer", async () => {
   assert.match(outcome.message, /reviewer/);
   assert.match(outcome.message, new RegExp(started.id));
   assert.match(outcome.message, /The task is done\./);
+});
+
+test("a task that starts with @ reaches the child unchanged", async () => {
+  const runsDir = mkdtempSync(join(tmpdir(), "runs-"));
+
+  const started = startRun({
+    agent,
+    task: "@types migration",
+    cwd: runsDir,
+    runsDir,
+    env: environment(runsDir, "0"),
+  });
+  await started.finished;
+
+  assert.equal(readFileSync(join(runsDir, "stdin.txt"), "utf8"), "@types migration");
+  const argv: string[] = JSON.parse(readFileSync(join(runsDir, "argv.json"), "utf8"));
+  assert.ok(!argv.some((arg) => arg.includes("@types")));
 });
 
 test("a non-zero exit fails the run and keeps the transcript", async () => {

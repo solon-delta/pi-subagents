@@ -1,10 +1,13 @@
 #!/usr/bin/env node
-// A fake pi executable. It records its arguments, prints canned JSONL events,
-// and exits with a chosen code. This is the single test seam.
-import { writeFileSync } from "node:fs";
+// A fake pi executable. It records its arguments and its stdin, prints canned
+// JSONL events, and exits with a chosen code. This is the single test seam.
+import { readFileSync, writeFileSync } from "node:fs";
 
 const argvOut = process.env.FAKE_PI_ARGV_OUT;
 if (argvOut !== undefined) writeFileSync(argvOut, JSON.stringify(process.argv.slice(2)));
+
+const stdinOut = process.env.FAKE_PI_STDIN_OUT;
+if (stdinOut !== undefined) writeFileSync(stdinOut, readFileSync(0, "utf8"));
 
 const answer = process.env.FAKE_PI_ANSWER ?? "The task is done.";
 const events = [

@@ -8,8 +8,12 @@ export function piExecutable(env: NodeJS.ProcessEnv): string {
   return env.PI_SUBAGENTS_PI_BIN ?? "pi";
 }
 
-/** The command line of one child run. The task text is always the last argument. */
-export function childArguments(agent: AgentDefinition, task: string): string[] {
+/**
+ * The command line of one child run. The task text is not here: pi reads a
+ * positional argument that starts with "@" as a file path, and it has no escape
+ * for that, so the task goes to the child on stdin.
+ */
+export function childArguments(agent: AgentDefinition): string[] {
   const args = [
     "--mode",
     "json",
@@ -24,12 +28,10 @@ export function childArguments(agent: AgentDefinition, task: string): string[] {
 
   if (agent.model !== undefined) args.push("--model", agent.model);
 
-  if (agent.systemPrompt !== "") {
-    const flag = agent.systemPromptMode === "append" ? "--append-system-prompt" : "--system-prompt";
-    args.push(flag, agent.systemPrompt);
-  }
+  // An empty body still sends the flag. A replace agent with an empty body asks
+  // for an empty system prompt, not for the pi default prompt.
+  const flag = agent.systemPromptMode === "append" ? "--append-system-prompt" : "--system-prompt";
+  args.push(flag, agent.systemPrompt);
 
-  // `--` stops option parsing, so a task that starts with a dash stays a task.
-  args.push("--", task);
   return args;
 }
