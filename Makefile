@@ -8,26 +8,31 @@ PODMAN := podman run --rm \
           -w /work \
           $(IMAGE)
 
-setup:
+# Podman refuses a bind mount whose source is missing, and the npm cache is not
+# in the repository. Every target creates it first.
+.cache:
+	mkdir -p .cache
+
+setup: | .cache
 	$(PODMAN) npm install && $(PODMAN) npm ci
 
-install:
+install: | .cache
 	$(PODMAN) npm ci
 
-test:
+test: | .cache
 	$(PODMAN) node --test "test/**/*.test.ts"
 
-test-unit:
+test-unit: | .cache
 	$(PODMAN) node --test "test/*.test.ts"
 
-test-integration:
+test-integration: | .cache
 	$(PODMAN) node --test "test/integration/*.test.ts"
 
-check:
+check: | .cache
 	$(PODMAN) npx tsc --noEmit
 
-fmt:
+fmt: | .cache
 	$(PODMAN) npx oxfmt "**/*.ts" "!tools/**"
 
-lint:
+lint: | .cache
 	$(PODMAN) npx oxlint
