@@ -8,7 +8,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
-import { agentRoots, discoverAgents, loadAgent } from "./src/agents.ts";
+import { agentRoots, loadAgent } from "./src/agents.ts";
 import { startRun } from "./src/run.ts";
 import { loadSettings, type Settings, settingsFiles, withDefaultModel } from "./src/settings.ts";
 
@@ -44,9 +44,8 @@ export default function (pi: ExtensionAPI) {
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const current = sessionSettings(ctx);
-      const roots = agentRoots(ctx.cwd, homedir(), current.agentDirs);
       const agent = withDefaultModel(
-        loadAgent(params.agent, discoverAgents(roots)),
+        loadAgent(params.agent, agentRoots(ctx.cwd, homedir(), current.agentDirs)),
         current.defaultModel,
       );
       const runsDir = join(
