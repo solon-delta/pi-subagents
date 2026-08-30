@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { Type } from "typebox";
+import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
+import { type Static, Type } from "typebox";
 import { Value } from "typebox/value";
 
 import type { AgentDefinition } from "./agent-file.ts";
@@ -48,48 +49,77 @@ function expandHome(path: string): string {
   return path.startsWith("~/") ? join(homedir(), path.slice(2)) : path;
 }
 
-/** The one settings file of this extension, inside the pi agent directory. */
-export function settingsFile(agentDir: string): string {
-  return join(agentDir, "pi-subagents.json");
-}
+const FILE_NAME = "pi-subagents.json";
 
 /**
- * Read the settings file. A missing file gives the defaults in silence. A file
- * that pi cannot use gives the defaults and a warning, so a typo never blocks a
- * session.
+ * The settings files, in rising order of precedence: the user file, then the
+ * project file. The project file is read only when the user trusts the project,
+ * because a repository must not raise a limit without consent.
  */
-export function loadSettings(file: string): LoadedSettings {
+export function settingsFiles(agentDir: string, cwd: string, projectTrusted: boolean): string[] {
+  const user = join(agentDir, FILE_NAME);
+  if (!projectTrusted) return [user];
+  return [user, join(cwd, CONFIG_DIR_NAME, FILE_NAME)];
+}
+
+type FileValues = Static<typeof SettingsFile>;
+
+interface ReadFile {
+  values: FileValues;
+  warning: string | undefined;
+}
+
+/** Read one file. A missing file and an unusable file both give no values. */
+function readFile(file: string): ReadFile {
   let text: string;
   try {
     text = readFileSync(file, "utf8");
   } catch {
-    return { settings: DEFAULTS, warning: undefined };
+    return { values: {}, warning: undefined };
   }
 
-  const defaults = (reason: string): LoadedSettings => ({
-    settings: DEFAULTS,
-    warning: `Ignored ${file}: ${reason}. The defaults are in use.`,
+  const ignore = (reason: string): ReadFile => ({
+    values: {},
+    warning: `Ignored ${file}: ${reason}.`,
   });
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch {
-    return defaults("the file is not valid JSON");
+    return ignore("the file is not valid JSON");
   }
 
   if (!Value.Check(SettingsFile, parsed)) {
-    return defaults(Value.Errors(SettingsFile, parsed)[0]?.message ?? "a key has a wrong value");
+    return ignore(Value.Errors(SettingsFile, parsed)[0]?.message ?? "a key has a wrong value");
   }
+  return { values: parsed, warning: undefined };
+}
+
+/**
+ * Read the settings files. A later file overrides an earlier one, key by key. A
+ * missing file gives the defaults in silence. A file that pi cannot use gives a
+ * warning and drops out, so a typo never blocks a session.
+ */
+export function loadSettings(files: string[]): LoadedSettings {
+  const warnings: string[] = [];
+  let values: FileValues = {};
+
+  for (const file of files) {
+    const read = readFile(file);
+    if (read.warning !== undefined) warnings.push(read.warning);
+    values = { ...values, ...read.values };
+  }
+
   return {
     settings: {
-      maxDepth: parsed.maxDepth ?? DEFAULTS.maxDepth,
-      maxConcurrency: parsed.maxConcurrency ?? DEFAULTS.maxConcurrency,
-      timeoutMinutes: parsed.timeoutMinutes ?? DEFAULTS.timeoutMinutes,
-      defaultModel: parsed.defaultModel ?? DEFAULTS.defaultModel,
-      agentDirs: (parsed.agentDirs ?? DEFAULTS.agentDirs).map(expandHome),
+      maxDepth: values.maxDepth ?? DEFAULTS.maxDepth,
+      maxConcurrency: values.maxConcurrency ?? DEFAULTS.maxConcurrency,
+      timeoutMinutes: values.timeoutMinutes ?? DEFAULTS.timeoutMinutes,
+      defaultModel: values.defaultModel ?? DEFAULTS.defaultModel,
+      agentDirs: (values.agentDirs ?? DEFAULTS.agentDirs).map(expandHome),
     },
-    warning: undefined,
+    warning: warnings.length === 0 ? undefined : warnings.join(" "),
   };
 }
 

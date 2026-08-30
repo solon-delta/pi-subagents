@@ -44,8 +44,14 @@ shadows a file of the same agent name in a later root.
 
 ## Configuration
 
-One JSON file holds the settings: `~/.pi/agent/pi-subagents.json`. Every key is
-optional.
+Two JSON files hold the settings. Every key is optional in both.
+
+- `~/.pi/agent/pi-subagents.json` for the user
+- `.pi/pi-subagents.json` in the project
+
+The project file overrides the user file, key by key. A key that the project
+file leaves out keeps the user value. The project file is read only when you
+trust the project, so a repository cannot raise a limit without your consent.
 
 ```json
 {
@@ -58,9 +64,9 @@ optional.
 ```
 
 A missing file gives the defaults above. A file that is not valid JSON, or that
-holds a wrong value type, gives the defaults and a warning, so a typo never
-blocks a session. An unknown key is ignored. The file is read once, at the start
-of a session.
+holds a wrong value type, warns and drops out, so a typo never blocks a session.
+The other file still applies. An unknown key is ignored. Both files are read
+once, on the first call of the `subagent` tool.
 
 `agentDirs` adds agent roots. They are searched after the user root and before
 the bundled root. A leading `~` is expanded. `defaultModel` is used by an agent
