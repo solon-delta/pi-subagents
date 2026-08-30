@@ -1,4 +1,4 @@
-.PHONY: build test check fmt lint
+.PHONY: build setup install test test-unit test-integration check fmt lint
 
 IMAGE  := docker.io/library/node:26.5-trixie
 
@@ -8,17 +8,31 @@ PODMAN := podman run --rm \
           -w /work \
           $(IMAGE)
 
-setup:
+# Podman refuses a bind mount whose source is missing, and the npm cache is not
+# in the repository. Every target creates it first.
+.cache:
+	mkdir -p .cache
+
+setup: | .cache
 	$(PODMAN) npm install && $(PODMAN) npm ci
 
-test:
+install: | .cache
+	$(PODMAN) npm ci
+
+test: | .cache
 	$(PODMAN) node --test "test/**/*.test.ts"
 
-check:
+test-unit: | .cache
+	$(PODMAN) node --test "test/*.test.ts"
+
+test-integration: | .cache
+	$(PODMAN) node --test "test/integration/*.test.ts"
+
+check: | .cache
 	$(PODMAN) npx tsc --noEmit
 
-fmt:
+fmt: | .cache
 	$(PODMAN) npx oxfmt "**/*.ts" "!tools/**"
 
-lint:
+lint: | .cache
 	$(PODMAN) npx oxlint

@@ -1,0 +1,22 @@
+name: CI
+
+on:
+  pull_request:
+
+# Every step runs in the container the Makefile pins, which is what a
+# maintainer runs locally. The runner supplies podman.
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: make install
+      - name: Type check
+        run: make check
+      - name: Unit tests
+        run: make test-unit
+      - name: Integration tests
+        run: make test-integration
+      - name: Lint
+        run: make lint
