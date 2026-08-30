@@ -96,6 +96,32 @@ test("a task that starts with @ reaches the child unchanged", async () => {
   assert.ok(!argv.some((arg) => arg.includes("@types")));
 });
 
+test("an append agent without tools gets the append flag and --no-tools", async () => {
+  const runsDir = mkdtempSync(join(tmpdir(), "runs-"));
+
+  const started = startRun({
+    agent: { ...agent, tools: [], model: undefined, systemPromptMode: "append", systemPrompt: "" },
+    task: "task",
+    cwd: runsDir,
+    runsDir,
+    env: environment(runsDir, "0"),
+  });
+  await started.finished;
+
+  const argv: string[] = JSON.parse(readFileSync(join(runsDir, "argv.json"), "utf8"));
+  assert.deepEqual(argv, [
+    "--mode",
+    "json",
+    "--print",
+    "--no-extensions",
+    "--no-skills",
+    "--no-context-files",
+    "--no-tools",
+    "--append-system-prompt",
+    "",
+  ]);
+});
+
 test("a non-zero exit fails the run and keeps the transcript", async () => {
   const runsDir = mkdtempSync(join(tmpdir(), "runs-"));
 
