@@ -113,23 +113,27 @@ export function startRun(options: RunOptions): StartedRun {
   });
 
   const finished = new Promise<RunOutcome>((resolve) => {
-    const finish = (ok: boolean, failure: string): RunOutcome => {
+    // A failed spawn emits "error" and then "close", so both handlers run. The
+    // first one owns the outcome and the last write of the record.
+    let settled = false;
+    const finish = (ok: boolean, failure: string): void => {
+      if (settled) return;
+      settled = true;
+
       record.endedAt = new Date().toISOString();
       record.status = ok ? "completed" : "failed";
       writeRecord(dir, record);
       const text = assistantText(lines);
-      return { record, message: resultMessage(record, text === "" ? failure : text) };
+      resolve({ record, message: resultMessage(record, text === "" ? failure : text) });
     };
 
     // The reader flushes a last line without a newline when stdout ends, which
     // can be after the process itself is gone.
     const streamEnded = new Promise<void>((done) => reader.on("close", () => done()));
 
-    child.on("error", (error) =>
-      resolve(finish(false, `The child did not start: ${error.message}`)),
-    );
+    child.on("error", (error) => finish(false, `The child did not start: ${error.message}`));
     child.on("close", (code) => {
-      streamEnded.then(() => resolve(finish(code === 0, errors.join("").trim())));
+      streamEnded.then(() => finish(code === 0, errors.join("").trim()));
     });
   });
 
