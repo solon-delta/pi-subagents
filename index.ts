@@ -1,11 +1,12 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { type ExtensionAPI, getAgentDir } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
 import { agentRoots, discoverAgents, loadAgent } from "./src/agents.ts";
 import { startRun } from "./src/run.ts";
+import { loadSettings, settingsFile, withDefaultModel } from "./src/settings.ts";
 
 const DESCRIPTION = [
   "Delegate a task to a named subagent that runs in its own pi process.",
@@ -14,6 +15,13 @@ const DESCRIPTION = [
 ].join(" ");
 
 export default function (pi: ExtensionAPI) {
+  // One read for the session. A changed file needs a new session.
+  const { settings, warning } = loadSettings(settingsFile(getAgentDir()));
+
+  pi.on("session_start", (_event, ctx) => {
+    if (warning !== undefined) ctx.ui.notify(warning, "warning");
+  });
+
   pi.registerTool({
     name: "subagent",
     label: "Subagent",
@@ -23,7 +31,11 @@ export default function (pi: ExtensionAPI) {
       task: Type.String({ description: "The complete task text for the subagent" }),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const agent = loadAgent(params.agent, discoverAgents(agentRoots(ctx.cwd, homedir())));
+      const roots = agentRoots(ctx.cwd, homedir(), settings.agentDirs);
+      const agent = withDefaultModel(
+        loadAgent(params.agent, discoverAgents(roots)),
+        settings.defaultModel,
+      );
       const runsDir = join(
         ctx.sessionManager.getSessionDir(),
         "subagents",

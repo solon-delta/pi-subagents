@@ -42,6 +42,31 @@ The `name` key selects the agent. A file without that key is named after its
 file stem, so `explorer.md` is the agent `explorer`. A file in an earlier root
 shadows a file of the same agent name in a later root.
 
+## Configuration
+
+One JSON file holds the settings: `~/.pi/agent/pi-subagents.json`. Every key is
+optional.
+
+```json
+{
+  "maxDepth": 3,
+  "maxConcurrency": 4,
+  "timeoutMinutes": 30,
+  "defaultModel": "anthropic/claude-sonnet-5",
+  "agentDirs": ["/home/user/work/agents"]
+}
+```
+
+A missing file gives the defaults above. A file that is not valid JSON, or that
+holds a wrong value type, gives the defaults and a warning, so a typo never
+blocks a session. An unknown key is ignored. The file is read once, at the start
+of a session.
+
+`agentDirs` adds agent roots. They are searched after the user root and before
+the bundled root. A leading `~` is expanded. `defaultModel` is used by an agent
+file without a `model` key. The three limits `maxDepth`, `maxConcurrency` and
+`timeoutMinutes` are read, but the code that enforces them is not written yet.
+
 ## Run state
 
 Each run gets a directory under the session directory:

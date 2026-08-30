@@ -5,11 +5,15 @@ import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 
 import { type AgentDefinition, parseAgentFile } from "./agent-file.ts";
 
-/** The three roots, in shadowing order: project, user, bundled. */
-export function agentRoots(cwd: string, home: string): string[] {
+/**
+ * The roots, in shadowing order: project, user, the configured extra roots,
+ * bundled.
+ */
+export function agentRoots(cwd: string, home: string, extra: string[] = []): string[] {
   return [
     join(cwd, CONFIG_DIR_NAME, "agents"),
     join(home, CONFIG_DIR_NAME, "agent", "agents"),
+    ...extra,
     fileURLToPath(new URL("../agents", import.meta.url)),
   ];
 }
