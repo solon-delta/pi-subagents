@@ -34,8 +34,8 @@ test("a project file shadows a user file of the same name", () => {
   const agents = discoverAgents([project, user]);
 
   assert.deepEqual([...agents.keys()].sort(), ["reviewer", "scout"]);
-  assert.equal(agents.get("reviewer"), join(project, "reviewer.md"));
-  assert.equal(agents.get("scout"), join(user, "scout.md"));
+  assert.equal(loadAgent("reviewer", [project, user]).file, join(project, "reviewer.md"));
+  assert.equal(loadAgent("scout", [project, user]).file, join(user, "scout.md"));
 });
 
 test("a missing root is skipped", () => {
@@ -45,9 +45,9 @@ test("a missing root is skipped", () => {
 });
 
 test("an unknown agent name fails with the available names", () => {
-  const agents = discoverAgents([agentDir("reviewer", "scout")]);
+  const roots = [agentDir("reviewer", "scout")];
 
-  assert.throws(() => loadAgent("typo", agents), /typo.*reviewer, scout/s);
+  assert.throws(() => loadAgent("typo", roots), /typo.*reviewer, scout/s);
 });
 
 test("the frontmatter name selects the agent, not the file stem", () => {
@@ -60,7 +60,7 @@ test("the frontmatter name selects the agent, not the file stem", () => {
   const agents = discoverAgents([root]);
 
   assert.deepEqual([...agents.keys()], ["strict-reviewer"]);
-  assert.equal(loadAgent("strict-reviewer", agents).name, "strict-reviewer");
+  assert.equal(loadAgent("strict-reviewer", [root]).name, "strict-reviewer");
 });
 
 test("an unusable file is listed under its stem and fails on launch", () => {
@@ -70,13 +70,14 @@ test("an unusable file is listed under its stem and fails on launch", () => {
   const agents = discoverAgents([root]);
 
   assert.deepEqual([...agents.keys()], ["broken"]);
-  assert.throws(() => loadAgent("broken", agents), /tools.*broken\.md/s);
+  assert.ok(agents.get("broken") instanceof Error);
+  assert.throws(() => loadAgent("broken", [root]), /tools.*broken\.md/s);
 });
 
 test("the bundled root ships a usable agent", () => {
   const bundled = agentRoots("/project", "/home/user")[2];
 
-  const agent = loadAgent("explorer", discoverAgents([bundled]));
+  const agent = loadAgent("explorer", [bundled]);
 
   assert.equal(agent.name, "explorer");
   assert.ok(agent.tools.includes("read"));
@@ -84,7 +85,5 @@ test("the bundled root ships a usable agent", () => {
 });
 
 test("a known agent name is parsed from its file", () => {
-  const agents = discoverAgents([agentDir("scout")]);
-
-  assert.equal(loadAgent("scout", agents).description, "scout");
+  assert.equal(loadAgent("scout", [agentDir("scout")]).description, "scout");
 });
