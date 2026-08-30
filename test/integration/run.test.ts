@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, readFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { setTimeout } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
 import type { AgentDefinition } from "../../src/agent-file.ts";
@@ -155,4 +156,15 @@ test("a missing executable fails the run", async () => {
 
   assert.equal(outcome.record.status, "failed");
   assert.match(outcome.message, /did not start/);
+
+  // The failed spawn emits "error" and then "close", so both handlers reach the
+  // finish function. Only the first one may finish the run. Both calls stamp
+  // the same millisecond, so the record alone cannot show a second call. The
+  // deleted file can: a second call writes it again.
+  const delivered = { ...outcome.record };
+  unlinkSync(join(started.dir, "run.json"));
+  await setTimeout(50);
+
+  assert.ok(!existsSync(join(started.dir, "run.json")), "the run was finished twice");
+  assert.deepEqual(outcome.record, delivered);
 });
