@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 
 import type { AgentDefinition } from "./agent-file.ts";
+import { toolArguments } from "./tools.ts";
 import { assistantText } from "./transcript.ts";
 
 export type RunStatus = "completed" | "failed" | "queued" | "running" | "stopped";
@@ -51,6 +52,8 @@ export interface PreparedRun {
   dir: string;
   record: RunRecord;
   options: RunOptions;
+  /** The command line of the child, without the executable. */
+  args: string[];
 }
 
 /**
@@ -74,10 +77,8 @@ function childArguments(agent: AgentDefinition): string[] {
     "--no-extensions",
     "--no-skills",
     "--no-context-files",
+    ...toolArguments(agent.tools, agent.name),
   ];
-
-  if (agent.tools.length === 0) args.push("--no-tools");
-  else args.push("--tools", agent.tools.join(","));
 
   if (agent.model !== undefined) args.push("--model", agent.model);
 
@@ -95,9 +96,12 @@ function writeRecord(dir: string, record: RunRecord): void {
 
 /**
  * Give a run its id, its directory and its record. The child does not run yet,
- * so the record says "queued" until startRun spawns it.
+ * so the record says "queued" until startRun spawns it. The command line is
+ * built here, because an unknown tool name must fail the launch before the run
+ * leaves a directory behind.
  */
 export function prepareRun(options: RunOptions): PreparedRun {
+  const args = childArguments(options.agent);
   const id = randomBytes(4).toString("hex");
   const dir = join(options.runsDir, id);
   mkdirSync(dir, { recursive: true });
@@ -114,7 +118,7 @@ export function prepareRun(options: RunOptions): PreparedRun {
   writeRecord(dir, record);
   writeFileSync(join(dir, "transcript.jsonl"), "");
 
-  return { id, dir, record, options };
+  return { id, dir, record, options, args };
 }
 
 /**
@@ -142,14 +146,13 @@ export interface RunHandle {
 
 /** Start the child pi process of a prepared run. */
 export function startRun(run: PreparedRun): RunHandle {
-  const { dir, record, options } = run;
+  const { args, dir, record, options } = run;
   const transcript = join(dir, "transcript.jsonl");
 
   record.startedAt = new Date().toISOString();
   record.status = "running";
   writeRecord(dir, record);
 
-  const args = childArguments(options.agent);
   const child = spawn(piExecutable(options.env), args, {
     cwd: options.cwd,
     env: options.env,

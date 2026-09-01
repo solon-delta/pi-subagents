@@ -45,6 +45,20 @@ The `name` key selects the agent. A file without that key is named after its
 file stem, so `explorer.md` is the agent `explorer`. A file in an earlier root
 shadows a file of the same agent name in a later root.
 
+## Tool names
+
+A `tools` entry is a plain tool name, never a path. Two kinds of name work.
+
+- A pi built-in: `read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`, and
+  `powershell` on Windows.
+- A name that an extension file backs. This package backs `subagent` and
+  `subagent_stop`.
+
+A child gets no ambient extensions, so a mapped name puts its extension file on
+the child command line. Two mapped names from the same file load it once. A name
+that is neither built in nor mapped fails the launch with an error that names
+the tool and the agent, so a typo never gives you a weaker agent in silence.
+
 ## Configuration
 
 Two JSON files hold the settings. Every key is optional in both.
