@@ -11,6 +11,9 @@ Load the extension with `pi -e ./index.ts`, or install the package.
 The `subagent` tool takes an agent name and a task text. It returns a run id at
 once. The caller must not poll for the result.
 
+The `subagent_stop` tool takes a run id and kills that child process. The
+command `/subagent-stop <run id>` does the same for you.
+
 ## Agent files
 
 An agent is one markdown file. The frontmatter states the powers of the agent.
@@ -70,9 +73,9 @@ once, on the first call of the `subagent` tool.
 
 `agentDirs` adds agent roots. They are searched after the user root and before
 the bundled root. A leading `~` is expanded. `defaultModel` is used by an agent
-file without a `model` key. `maxConcurrency` is enforced. The two limits
-`maxDepth` and `timeoutMinutes` are read, but the code that enforces them is
-not written yet.
+file without a `model` key. `maxConcurrency` and `timeoutMinutes` are
+enforced. A `timeoutMinutes` of zero means that a run has no time limit. The
+limit `maxDepth` is read, but the code that enforces it is not written yet.
 
 ## Concurrency
 
@@ -81,13 +84,26 @@ in a queue, and the tool says that the run is queued. A run that ends frees its
 slot for the next run in arrival order. The queue keeps draining after the turn
 of the main agent ends.
 
+## Stopping a run
+
+`/subagent-stop <run id>` kills the child of that run. The run gets the
+`stopped` status and keeps its transcript. A run that waits in the queue is
+stopped too, and it never starts a child. An unknown run id and a run that
+already ended change nothing, and the answer says so.
+
+A run that passes `timeoutMinutes` is killed and gets the `failed` status. The
+result message of a stopped run and of a timed out run states why it ended.
+
+No child survives your pi session. Children are not detached, and the session
+shutdown handler kills every live child.
+
 ## Run state
 
 Each run gets a directory under the session directory:
 `<session dir>/subagents/<session id>/<run id>/`. It holds `transcript.jsonl`
 with every child event and `run.json` with the agent name, the model, the queue
 time, the start time, the end time, and the status. The status is `queued`,
-`running`, `completed` or `failed`. Nothing is deleted.
+`running`, `completed`, `failed` or `stopped`. Nothing is deleted.
 
 ## Development
 

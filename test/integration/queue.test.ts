@@ -49,10 +49,11 @@ test("no more children run together than the limit allows", async () => {
       cwd: runsDir,
       runsDir,
       env: { ...process.env, PI_SUBAGENTS_PI_BIN: fakePi, FAKE_PI_LOG: log, FAKE_PI_HOLD_MS: "80" },
+      timeoutMs: 0,
     });
     finished.push(
       new Promise<void>((done) => {
-        queue.add(() => startRun(run).then(() => done()));
+        queue.add(() => startRun(run).done.then(() => done()));
       }),
     );
 

@@ -7,7 +7,7 @@ import { createInterface } from "node:readline";
 import type { AgentDefinition } from "./agent-file.ts";
 import { assistantText } from "./transcript.ts";
 
-export type RunStatus = "completed" | "failed" | "queued" | "running";
+export type RunStatus = "completed" | "failed" | "queued" | "running" | "stopped";
 
 export interface RunRecord {
   id: string;
@@ -35,6 +35,8 @@ export interface RunOptions {
   /** Directory that holds one subdirectory per run. */
   runsDir: string;
   env: NodeJS.ProcessEnv;
+  /** Wall clock limit in milliseconds. Zero means that the run has no limit. */
+  timeoutMs: number;
 }
 
 export interface RunOutcome {
@@ -115,8 +117,31 @@ export function prepareRun(options: RunOptions): PreparedRun {
   return { id, dir, record, options };
 }
 
-/** Start the child pi process of a prepared run. Resolves when the child ends. */
-export function startRun(run: PreparedRun): Promise<RunOutcome> {
+/**
+ * Finish a run whose child never started, because the run was stopped while it
+ * waited for a free slot.
+ */
+export function abandonRun(run: PreparedRun, why: string): RunOutcome {
+  const { dir, record } = run;
+  record.endedAt = new Date().toISOString();
+  record.status = "stopped";
+  writeRecord(dir, record);
+  return { record, message: resultMessage(record, why) };
+}
+
+/** A started run. The caller kills the child through it. */
+export interface RunHandle {
+  /**
+   * Kill the child and give the run the status. A run that already ended, and a
+   * run that was stopped before, do not change.
+   */
+  stop(status: "failed" | "stopped", why: string): void;
+  /** Resolves when the child ends. */
+  done: Promise<RunOutcome>;
+}
+
+/** Start the child pi process of a prepared run. */
+export function startRun(run: PreparedRun): RunHandle {
   const { dir, record, options } = run;
   const transcript = join(dir, "transcript.jsonl");
 
@@ -147,28 +172,61 @@ export function startRun(run: PreparedRun): Promise<RunOutcome> {
     appendFileSync(transcript, `${line}\n`);
   });
 
-  return new Promise<RunOutcome>((resolve) => {
+  /** Set by stop, and read by finish, which owns the record. */
+  let killed: { status: "failed" | "stopped"; why: string } | undefined;
+  let settled = false;
+  let timer: NodeJS.Timeout | undefined;
+
+  const done = new Promise<RunOutcome>((resolve) => {
     // A failed spawn emits "error" and then "close", so both handlers run. The
     // first one owns the outcome and the last write of the record.
-    let settled = false;
     const finish = (ok: boolean, failure: string): void => {
       if (settled) return;
       settled = true;
+      clearTimeout(timer);
 
       record.endedAt = new Date().toISOString();
-      record.status = ok ? "completed" : "failed";
+      record.status = killed?.status ?? (ok ? "completed" : "failed");
       writeRecord(dir, record);
-      const text = assistantText(lines);
+      // A killed child says why it ended. Its partial answer is not the answer
+      // to the task, so the reason replaces it.
+      const text = killed?.why ?? assistantText(lines);
       resolve({ record, message: resultMessage(record, text === "" ? failure : text) });
     };
 
     // The reader flushes a last line without a newline when stdout ends, which
     // can be after the process itself is gone.
-    const streamEnded = new Promise<void>((done) => reader.on("close", () => done()));
+    const streamEnded = new Promise<void>((end) => reader.on("close", () => end()));
 
     child.on("error", (error) => finish(false, `The child did not start: ${error.message}`));
     child.on("close", (code) => {
       streamEnded.then(() => finish(code === 0, errors.join("").trim()));
     });
   });
+
+  const stop = (status: "failed" | "stopped", why: string): void => {
+    if (settled || killed !== undefined) return;
+    killed = { status, why };
+    // The record carries the status now, and not only when the child is gone.
+    // A pi session that shuts down does not wait for the child to close.
+    record.status = status;
+    writeRecord(dir, record);
+    // ponytail: SIGKILL, because a stuck child may ignore SIGTERM and a second
+    // timer to escalate buys nothing here. The transcript is already on disk.
+    // ponytail: one pid, not a process group. The child is not detached, so it
+    // shares the process group of pi, and a group kill would kill pi too. A
+    // grandchild of a nested subagent therefore survives. Give the child its
+    // own group with detached, and kill the negative pid, if that shows up.
+    child.kill("SIGKILL");
+  };
+
+  if (options.timeoutMs > 0) {
+    const limit = `${options.timeoutMs / 60_000} minutes`;
+    timer = setTimeout(
+      () => stop("failed", `The run passed its limit of ${limit} and was killed.`),
+      options.timeoutMs,
+    );
+  }
+
+  return { stop, done };
 }
