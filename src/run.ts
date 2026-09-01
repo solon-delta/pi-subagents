@@ -5,7 +5,27 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 
 import type { AgentDefinition } from "./agent-file.ts";
-import { assistantText, resultMessage, type RunRecord } from "./transcript.ts";
+import { assistantText } from "./transcript.ts";
+
+export type RunStatus = "completed" | "failed" | "queued" | "running";
+
+export interface RunRecord {
+  id: string;
+  agent: string;
+  /** The model of the agent file, or null when the agent file names none. */
+  model: string | null;
+  /** ISO timestamps. A queued run has no start time and no end time. */
+  queuedAt: string;
+  startedAt: string | undefined;
+  endedAt: string | undefined;
+  status: RunStatus;
+}
+
+/** The message that carries a finished run back into the parent conversation. */
+export function resultMessage(record: RunRecord, text: string): string {
+  const head = `Subagent "${record.agent}" (run ${record.id}) ${record.status}.`;
+  return text === "" ? head : `${head}\n\n${text}`;
+}
 
 export interface RunOptions {
   agent: AgentDefinition;

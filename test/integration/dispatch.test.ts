@@ -7,7 +7,7 @@ import { setTimeout } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
 import { createDispatcher, type Host } from "../../src/dispatch.ts";
-import type { RunRecord } from "../../src/transcript.ts";
+import type { RunRecord } from "../../src/run.ts";
 
 const fakePi = fileURLToPath(new URL("./fake-pi.mjs", import.meta.url));
 

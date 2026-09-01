@@ -1,8 +1,7 @@
 import { loadAgent } from "./agents.ts";
 import { createRunQueue } from "./queue.ts";
-import { prepareRun, startRun } from "./run.ts";
+import { prepareRun, type RunRecord, startRun } from "./run.ts";
 import { loadSettings, settingsFiles } from "./settings.ts";
-import type { RunRecord } from "./transcript.ts";
 
 /**
  * What the dispatch module needs from the host. Every fact is a plain value or
