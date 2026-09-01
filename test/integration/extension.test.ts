@@ -112,11 +112,16 @@ async function harness() {
   chmodSync(fakePi, 0o755);
   process.env.PI_SUBAGENTS_PI_BIN = fakePi;
 
+  /** Where the extension keeps the state of every run of this session. */
+  const runsDir = join(
+    sessionManager.getSessionDir(),
+    "subagents",
+    sessionManager.getSessionId(),
+  );
   /** Where the extension keeps the state of one run. */
-  const runDir = (runId: string): string =>
-    join(sessionManager.getSessionDir(), "subagents", sessionManager.getSessionId(), runId);
+  const runDir = (runId: string): string => join(runsDir, runId);
 
-  return { runner, sent, delivered, cwd, runDir };
+  return { runner, sent, delivered, cwd, runDir, runsDir };
 }
 
 function subagentTool(runner: ExtensionRunner) {
@@ -184,6 +189,34 @@ test("the tool takes an agent name and a task text", async () => {
   assert.ok(Check(schema, { agent: "explorer", task: "Find the entry point" }));
   assert.ok(!Check(schema, { agent: "explorer" }), "the task is optional");
   assert.ok(!Check(schema, { task: "Find the entry point" }), "the agent name is optional");
+});
+
+test("an agent file with an unknown tool name fails the tool call", async () => {
+  const { runner, sent, cwd, runsDir } = await harness();
+  mkdirSync(join(cwd, CONFIG_DIR_NAME, "agents"), { recursive: true });
+  writeFileSync(
+    join(cwd, CONFIG_DIR_NAME, "agents", "typo-tools.md"),
+    "---\ndescription: An agent with a typo\ntools: [read, webserch]\n---\n\nYou read files.\n",
+  );
+
+  await assert.rejects(
+    subagentTool(runner).execute(
+      "call-1",
+      { agent: "typo-tools", task: "Find the entry point" },
+      undefined,
+      () => {},
+      runner.createContext(),
+    ),
+    (error: Error) => {
+      assert.match(error.message, /webserch/);
+      // The name comes from the agent file, not from a literal in the test.
+      assert.match(error.message, /typo-tools/);
+      return true;
+    },
+  );
+
+  assert.ok(!existsSync(runsDir), "the failed launch took disk");
+  assert.equal(sent.length, 0, "the failed launch reached the conversation");
 });
 
 test("the tool returns a run id before the child finishes", async () => {
