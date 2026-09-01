@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, unlinkSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -124,6 +124,55 @@ test("an append agent without tools gets the append flag and --no-tools", async 
     "--append-system-prompt",
     "",
   ]);
+});
+
+test("a tool name of this extension puts the extension file on the command line", async () => {
+  const runsDir = mkdtempSync(join(tmpdir(), "runs-"));
+  const self = fileURLToPath(new URL("../../index.ts", import.meta.url));
+
+  const run = prepareRun({
+    agent: { ...agent, tools: ["read", "subagent", "subagent_stop"], model: undefined },
+    task: "Split the work",
+    cwd: runsDir,
+    runsDir,
+    env: environment(runsDir, "0"),
+    timeoutMs: 0,
+  });
+  await startRun(run).done;
+
+  const argv: string[] = JSON.parse(readFileSync(join(runsDir, "argv.json"), "utf8"));
+  assert.deepEqual(argv, [
+    "--mode",
+    "json",
+    "--print",
+    "--no-extensions",
+    "--no-skills",
+    "--no-context-files",
+    "--tools",
+    "read,subagent,subagent_stop",
+    "--extension",
+    self,
+    "--system-prompt",
+    "You review code.",
+  ]);
+});
+
+test("an unknown tool name fails the launch and writes no run directory", () => {
+  const runsDir = mkdtempSync(join(tmpdir(), "runs-"));
+
+  assert.throws(
+    () =>
+      prepareRun({
+        agent: { ...agent, tools: ["read", "webserch"] },
+        task: "Review the diff",
+        cwd: runsDir,
+        runsDir,
+        env: environment(runsDir, "0"),
+        timeoutMs: 0,
+      }),
+    /webserch.*reviewer|reviewer.*webserch/,
+  );
+  assert.deepEqual(readdirSync(runsDir), []);
 });
 
 test("a non-zero exit fails the run and keeps the transcript", async () => {
