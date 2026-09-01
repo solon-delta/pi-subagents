@@ -70,15 +70,24 @@ once, on the first call of the `subagent` tool.
 
 `agentDirs` adds agent roots. They are searched after the user root and before
 the bundled root. A leading `~` is expanded. `defaultModel` is used by an agent
-file without a `model` key. The three limits `maxDepth`, `maxConcurrency` and
-`timeoutMinutes` are read, but the code that enforces them is not written yet.
+file without a `model` key. `maxConcurrency` is enforced. The two limits
+`maxDepth` and `timeoutMinutes` are read, but the code that enforces them is
+not written yet.
+
+## Concurrency
+
+`maxConcurrency` children run at the same time. A spawn above that number waits
+in a queue, and the tool says that the run is queued. A run that ends frees its
+slot for the next run in arrival order. The queue keeps draining after the turn
+of the main agent ends.
 
 ## Run state
 
 Each run gets a directory under the session directory:
 `<session dir>/subagents/<session id>/<run id>/`. It holds `transcript.jsonl`
-with every child event and `run.json` with the agent name, the model, the start
-time, the end time, and the status. Nothing is deleted.
+with every child event and `run.json` with the agent name, the model, the queue
+time, the start time, the end time, and the status. The status is `queued`,
+`running`, `completed` or `failed`. Nothing is deleted.
 
 ## Development
 

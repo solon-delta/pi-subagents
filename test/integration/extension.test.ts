@@ -1,11 +1,20 @@
 import assert from "node:assert/strict";
-import { chmodSync, existsSync, mkdtempSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { setTimeout } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
 import {
+  CONFIG_DIR_NAME,
   discoverAndLoadExtensions,
   type ExtensionActions,
   type ExtensionContextActions,
@@ -103,7 +112,11 @@ async function harness() {
   chmodSync(fakePi, 0o755);
   process.env.PI_SUBAGENTS_PI_BIN = fakePi;
 
-  return { runner, sessionManager, sent, delivered };
+  /** Where the extension keeps the state of one run. */
+  const runDir = (runId: string): string =>
+    join(sessionManager.getSessionDir(), "subagents", sessionManager.getSessionId(), runId);
+
+  return { runner, sent, delivered, cwd, runDir };
 }
 
 function subagentTool(runner: ExtensionRunner) {
@@ -112,8 +125,13 @@ function subagentTool(runner: ExtensionRunner) {
   return tool;
 }
 
-/** Call the registered tool the way pi calls it, and return the run id. */
-async function callSubagent(runner: ExtensionRunner, task: string): Promise<string> {
+interface ToolAnswer {
+  runId: string;
+  text: string;
+}
+
+/** Call the registered tool the way pi calls it, and read its answer. */
+async function callSubagent(runner: ExtensionRunner, task: string): Promise<ToolAnswer> {
   const result = await subagentTool(runner).execute(
     "call-1",
     { agent: "explorer", task },
@@ -122,9 +140,10 @@ async function callSubagent(runner: ExtensionRunner, task: string): Promise<stri
     runner.createContext(),
   );
 
-  const started = /run ([0-9a-f]{8})\b/.exec(text(result.content));
-  assert.ok(started !== null, `the tool reports no run id: ${text(result.content)}`);
-  return started[1];
+  const answer = text(result.content);
+  const started = /run ([0-9a-f]{8})\b/.exec(answer);
+  assert.ok(started !== null, `the tool reports no run id: ${answer}`);
+  return { runId: started[1], text: answer };
 }
 
 test("pi loads the extension and registers the subagent tool", async () => {
@@ -154,24 +173,48 @@ test("the tool returns a run id before the child finishes", async () => {
 });
 
 test("the run directory sits under the session directory of the session manager", async () => {
-  const { runner, sessionManager } = await harness();
+  const { runner, runDir } = await harness();
 
-  const runId = await callSubagent(runner, "Find the entry point");
+  const { runId } = await callSubagent(runner, "Find the entry point");
 
-  const dir = join(
-    sessionManager.getSessionDir(),
-    "subagents",
-    sessionManager.getSessionId(),
-    runId,
-  );
+  const dir = runDir(runId);
   assert.ok(existsSync(join(dir, "transcript.jsonl")), `no transcript under ${dir}`);
   assert.ok(existsSync(join(dir, "run.json")), `no metadata record under ${dir}`);
+});
+
+test("a spawn above the limit is queued and starts after the parent turn ends", async () => {
+  const { runner, sent, cwd, runDir } = await harness();
+  mkdirSync(join(cwd, CONFIG_DIR_NAME), { recursive: true });
+  writeFileSync(join(cwd, CONFIG_DIR_NAME, "pi-subagents.json"), '{"maxConcurrency": 1}');
+  process.env.FAKE_PI_HOLD_MS = "150";
+
+  const status = (runId: string): string =>
+    JSON.parse(readFileSync(join(runDir(runId), "run.json"), "utf8")).status;
+
+  try {
+    const first = await callSubagent(runner, "Find the entry point");
+    const second = await callSubagent(runner, "Find the tests");
+
+    assert.match(first.text, /^Started subagent/);
+    assert.match(second.text, /^Queued subagent/);
+    assert.equal(status(second.runId), "queued");
+    assert.equal(sent.length, 0, "no answer arrives while the tool calls run");
+
+    // The parent turn ends here. pi fires this event when a run has settled
+    // and nothing else in the turn will follow. The queue must still drain.
+    await runner.emit({ type: "agent_settled" });
+
+    while (sent.length < 2) await setTimeout(20);
+    assert.equal(status(second.runId), "completed");
+  } finally {
+    delete process.env.FAKE_PI_HOLD_MS;
+  }
 });
 
 test("the answer arrives as a steer message that names the agent and the run", async () => {
   const { runner, sent, delivered } = await harness();
 
-  const runId = await callSubagent(runner, "Find the entry point");
+  const { runId } = await callSubagent(runner, "Find the entry point");
   await delivered;
 
   assert.equal(sent.length, 1);

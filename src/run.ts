@@ -23,11 +23,12 @@ export interface RunOutcome {
   message: string;
 }
 
-export interface StartedRun {
+export interface PreparedRun {
   id: string;
   /** Directory with the transcript and the metadata record of this run. */
   dir: string;
-  finished: Promise<RunOutcome>;
+  record: RunRecord;
+  options: RunOptions;
 }
 
 /**
@@ -70,8 +71,11 @@ function writeRecord(dir: string, record: RunRecord): void {
   writeFileSync(join(dir, "run.json"), `${JSON.stringify(record, null, 2)}\n`);
 }
 
-/** Start a child pi process. Returns at once, without waiting for the child. */
-export function startRun(options: RunOptions): StartedRun {
+/**
+ * Give a run its id, its directory and its record. The child does not run yet,
+ * so the record says "queued" until startRun spawns it.
+ */
+export function prepareRun(options: RunOptions): PreparedRun {
   const id = randomBytes(4).toString("hex");
   const dir = join(options.runsDir, id);
   mkdirSync(dir, { recursive: true });
@@ -80,14 +84,25 @@ export function startRun(options: RunOptions): StartedRun {
     id,
     agent: options.agent.name,
     model: options.agent.model ?? null,
-    startedAt: new Date().toISOString(),
+    queuedAt: new Date().toISOString(),
+    startedAt: undefined,
     endedAt: undefined,
-    status: "running",
+    status: "queued",
   };
   writeRecord(dir, record);
+  writeFileSync(join(dir, "transcript.jsonl"), "");
 
+  return { id, dir, record, options };
+}
+
+/** Start the child pi process of a prepared run. Resolves when the child ends. */
+export function startRun(run: PreparedRun): Promise<RunOutcome> {
+  const { dir, record, options } = run;
   const transcript = join(dir, "transcript.jsonl");
-  writeFileSync(transcript, "");
+
+  record.startedAt = new Date().toISOString();
+  record.status = "running";
+  writeRecord(dir, record);
 
   const args = childArguments(options.agent);
   const child = spawn(piExecutable(options.env), args, {
@@ -112,7 +127,7 @@ export function startRun(options: RunOptions): StartedRun {
     appendFileSync(transcript, `${line}\n`);
   });
 
-  const finished = new Promise<RunOutcome>((resolve) => {
+  return new Promise<RunOutcome>((resolve) => {
     // A failed spawn emits "error" and then "close", so both handlers run. The
     // first one owns the outcome and the last write of the record.
     let settled = false;
@@ -136,6 +151,4 @@ export function startRun(options: RunOptions): StartedRun {
       streamEnded.then(() => finish(code === 0, errors.join("").trim()));
     });
   });
-
-  return { id, dir, finished };
 }

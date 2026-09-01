@@ -1,15 +1,16 @@
 import { type Static, Type } from "typebox";
 import { Value } from "typebox/value";
 
-export type RunStatus = "completed" | "failed" | "running";
+export type RunStatus = "completed" | "failed" | "queued" | "running";
 
 export interface RunRecord {
   id: string;
   agent: string;
   /** The model of the agent file, or null when the agent file names none. */
   model: string | null;
-  /** ISO timestamps. */
-  startedAt: string;
+  /** ISO timestamps. A queued run has no start time and no end time. */
+  queuedAt: string;
+  startedAt: string | undefined;
   endedAt: string | undefined;
   status: RunStatus;
 }
