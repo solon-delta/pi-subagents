@@ -50,14 +50,16 @@ test("no more children run together than the limit allows", async () => {
       runsDir,
       env: { ...process.env, PI_SUBAGENTS_PI_BIN: fakePi, FAKE_PI_LOG: log, FAKE_PI_HOLD_MS: "80" },
     });
-    assert.equal(JSON.parse(readFileSync(join(run.dir, "run.json"), "utf8")).status, "queued");
-
     finished.push(
       new Promise<void>((done) => {
         queue.add(run.id, () => startRun(run).then(() => done()));
       }),
     );
-    if (run.record.status === "queued") queued.push(run.id);
+
+    // The record on disk is the only place a waiting run is visible.
+    const status = JSON.parse(readFileSync(join(run.dir, "run.json"), "utf8")).status;
+    assert.equal(status, index < 2 ? "running" : "queued");
+    if (status === "queued") queued.push(run.id);
   }
 
   assert.deepEqual(queued.length, 4, "four of the six runs wait");
