@@ -1,13 +1,6 @@
 import { loadAgent } from "./agents.ts";
 import { createRunQueue } from "./queue.ts";
-import {
-  abandonRun,
-  type PreparedRun,
-  prepareRun,
-  type RunHandle,
-  type RunRecord,
-  startRun,
-} from "./run.ts";
+import { createRun, type Run, type RunRecord } from "./run.ts";
 import { loadSettings, settingsFiles } from "./settings.ts";
 
 /**
@@ -53,13 +46,6 @@ export interface Dispatcher {
   stopAll(): void;
 }
 
-/** One run of the session. It stays here after its child ends. */
-interface TrackedRun {
-  run: PreparedRun;
-  /** The handle of the child, or undefined while the run waits for a slot. */
-  handle: RunHandle | undefined;
-}
-
 const STOPPED = "The run was stopped before it finished.";
 const SHUTDOWN = "The run was stopped by the end of the pi session.";
 
@@ -77,29 +63,22 @@ export function createDispatcher(host: Host): Dispatcher {
   const queue = createRunQueue(settings.maxConcurrency);
   // Every run of the session, by id. A finished run stays here, so that a stop
   // can tell an unknown run from a run that already ended.
-  const runs = new Map<string, TrackedRun>();
+  const runs = new Map<string, Run>();
 
   /** Stop one run for one reason. Both public stops go through this. */
   const stopRun = (runId: string, why: string): string => {
-    const tracked = runs.get(runId);
-    if (tracked === undefined)
-      return `No subagent run "${runId}" in this session. Nothing changed.`;
+    const run = runs.get(runId);
+    if (run === undefined) return `No subagent run "${runId}" in this session. Nothing changed.`;
 
-    const record = tracked.run.record;
-    if (record.status !== "queued" && record.status !== "running") {
-      return `Subagent run ${runId} already ${record.status}. Nothing changed.`;
+    const before = run.status;
+    if (before !== "queued" && before !== "running") {
+      return `Subagent run ${runId} already ${before}. Nothing changed.`;
     }
 
-    if (tracked.handle === undefined) {
-      // The run still waits for a slot. It has no child to kill, so it ends
-      // here, and the queue skips it when a slot opens.
-      const outcome = abandonRun(tracked.run, why);
-      host.sendResult(outcome.message, outcome.record);
-      return `Stopped queued subagent run ${runId}.`;
-    }
-
-    tracked.handle.stop("stopped", why);
-    return `Stopped subagent run ${runId}.`;
+    run.stop(why);
+    return before === "queued"
+      ? `Stopped queued subagent run ${runId}.`
+      : `Stopped subagent run ${runId}.`;
   };
 
   return {
@@ -108,7 +87,7 @@ export function createDispatcher(host: Host): Dispatcher {
       // so the launch reads it now and not when the dispatcher was built.
       const cwd = host.cwd();
       const agent = loadAgent(name, settings, cwd, host.home);
-      const run = prepareRun({
+      const run = createRun({
         agent,
         task,
         cwd,
@@ -116,30 +95,30 @@ export function createDispatcher(host: Host): Dispatcher {
         env: host.env,
         timeoutMs: settings.timeoutMinutes * 60_000,
       });
+      runs.set(run.id, run);
 
-      const tracked: TrackedRun = { run, handle: undefined };
-      runs.set(run.id, tracked);
+      void run.done.then(
+        (outcome) => host.sendResult(outcome.message, outcome.record),
+        (error: Error) => host.notify(`Subagent run ${run.id} was lost: ${error.message}`, "error"),
+      );
 
-      const started = queue.add(() => {
-        // A run that was stopped in the queue must not spawn a child now.
-        if (run.record.status === "stopped") return Promise.resolve();
-
-        tracked.handle = startRun(run);
-        return tracked.handle.done.then(
-          (outcome) => host.sendResult(outcome.message, outcome.record),
-          (error: Error) =>
-            host.notify(`Subagent run ${run.id} was lost: ${error.message}`, "error"),
-        );
+      // A run that was stopped in the queue does nothing in start, and its done
+      // promise is already settled, so the slot opens again at once.
+      queue.add(() => {
+        run.start();
+        return run.done.then(() => {});
       });
 
-      const head = started
-        ? `Started subagent "${agent.name}" as run ${run.id}.`
-        : `Queued subagent "${agent.name}" as run ${run.id}. It starts when a slot is free.`;
+      // The run says itself whether a slot was free.
+      const queued = run.status === "queued";
+      const head = queued
+        ? `Queued subagent "${agent.name}" as run ${run.id}. It starts when a slot is free.`
+        : `Started subagent "${agent.name}" as run ${run.id}.`;
 
       return {
         id: run.id,
         dir: run.dir,
-        status: started ? "running" : "queued",
+        status: queued ? "queued" : "running",
         text: `${head} Do not poll for the result.`,
       };
     },

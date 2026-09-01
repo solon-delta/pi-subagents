@@ -7,7 +7,13 @@ import { setTimeout } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
 import type { AgentDefinition } from "../../src/agent-file.ts";
-import { prepareRun, startRun } from "../../src/run.ts";
+import { createRun, type Run, type RunOutcome } from "../../src/run.ts";
+
+/** Start a run and wait for its end. */
+function runStarted(run: Run): Promise<RunOutcome> {
+  run.start();
+  return run.done;
+}
 
 const fakePi = fileURLToPath(new URL("./fake-pi.mjs", import.meta.url));
 
@@ -35,7 +41,7 @@ function environment(runsDir: string, exit: string): NodeJS.ProcessEnv {
 test("a run drives the fake child and reports its answer", async () => {
   const runsDir = mkdtempSync(join(tmpdir(), "runs-"));
 
-  const run = prepareRun({
+  const run = createRun({
     agent,
     task: "Review the diff",
     cwd: runsDir,
@@ -45,7 +51,7 @@ test("a run drives the fake child and reports its answer", async () => {
   });
 
   assert.match(run.id, /^[0-9a-f]{8}$/);
-  const outcome = await startRun(run).done;
+  const outcome = await runStarted(run);
 
   const argv: string[] = JSON.parse(readFileSync(join(runsDir, "argv.json"), "utf8"));
   assert.deepEqual(argv, [
@@ -84,7 +90,7 @@ test("a run drives the fake child and reports its answer", async () => {
 test("a task that starts with @ reaches the child unchanged", async () => {
   const runsDir = mkdtempSync(join(tmpdir(), "runs-"));
 
-  const run = prepareRun({
+  const run = createRun({
     agent,
     task: "@types migration",
     cwd: runsDir,
@@ -92,7 +98,7 @@ test("a task that starts with @ reaches the child unchanged", async () => {
     env: environment(runsDir, "0"),
     timeoutMs: 0,
   });
-  await startRun(run).done;
+  await runStarted(run);
 
   assert.equal(readFileSync(join(runsDir, "stdin.txt"), "utf8"), "@types migration");
   const argv: string[] = JSON.parse(readFileSync(join(runsDir, "argv.json"), "utf8"));
@@ -102,7 +108,7 @@ test("a task that starts with @ reaches the child unchanged", async () => {
 test("an append agent without tools gets the append flag and --no-tools", async () => {
   const runsDir = mkdtempSync(join(tmpdir(), "runs-"));
 
-  const run = prepareRun({
+  const run = createRun({
     agent: { ...agent, tools: [], model: undefined, systemPromptMode: "append", systemPrompt: "" },
     task: "task",
     cwd: runsDir,
@@ -110,7 +116,7 @@ test("an append agent without tools gets the append flag and --no-tools", async 
     env: environment(runsDir, "0"),
     timeoutMs: 0,
   });
-  await startRun(run).done;
+  await runStarted(run);
 
   const argv: string[] = JSON.parse(readFileSync(join(runsDir, "argv.json"), "utf8"));
   assert.deepEqual(argv, [
@@ -130,7 +136,7 @@ test("a tool name of this extension puts the extension file on the command line"
   const runsDir = mkdtempSync(join(tmpdir(), "runs-"));
   const self = fileURLToPath(new URL("../../index.ts", import.meta.url));
 
-  const run = prepareRun({
+  const run = createRun({
     agent: { ...agent, tools: ["read", "subagent", "subagent_stop"], model: undefined },
     task: "Split the work",
     cwd: runsDir,
@@ -138,7 +144,7 @@ test("a tool name of this extension puts the extension file on the command line"
     env: environment(runsDir, "0"),
     timeoutMs: 0,
   });
-  await startRun(run).done;
+  await runStarted(run);
 
   const argv: string[] = JSON.parse(readFileSync(join(runsDir, "argv.json"), "utf8"));
   assert.deepEqual(argv, [
@@ -162,7 +168,7 @@ test("an unknown tool name fails the launch and writes no run directory", () => 
 
   assert.throws(
     () =>
-      prepareRun({
+      createRun({
         agent: { ...agent, tools: ["read", "webserch"] },
         task: "Review the diff",
         cwd: runsDir,
@@ -178,7 +184,7 @@ test("an unknown tool name fails the launch and writes no run directory", () => 
 test("a non-zero exit fails the run and keeps the transcript", async () => {
   const runsDir = mkdtempSync(join(tmpdir(), "runs-"));
 
-  const run = prepareRun({
+  const run = createRun({
     agent: { ...agent, model: undefined },
     task: "Review the diff",
     cwd: runsDir,
@@ -186,7 +192,7 @@ test("a non-zero exit fails the run and keeps the transcript", async () => {
     env: environment(runsDir, "3"),
     timeoutMs: 0,
   });
-  const outcome = await startRun(run).done;
+  const outcome = await runStarted(run);
 
   assert.equal(outcome.record.status, "failed");
   assert.equal(JSON.parse(readFileSync(join(run.dir, "run.json"), "utf8")).model, null);
@@ -198,7 +204,7 @@ test("a non-zero exit fails the run and keeps the transcript", async () => {
 test("a missing executable fails the run", async () => {
   const runsDir = mkdtempSync(join(tmpdir(), "runs-"));
 
-  const run = prepareRun({
+  const run = createRun({
     agent,
     task: "task",
     cwd: runsDir,
@@ -206,7 +212,7 @@ test("a missing executable fails the run", async () => {
     env: { ...process.env, PI_SUBAGENTS_PI_BIN: join(runsDir, "no-such-pi") },
     timeoutMs: 0,
   });
-  const outcome = await startRun(run).done;
+  const outcome = await runStarted(run);
 
   assert.equal(outcome.record.status, "failed");
   assert.match(outcome.message, /did not start/);
@@ -221,4 +227,31 @@ test("a missing executable fails the run", async () => {
 
   assert.ok(!existsSync(join(run.dir, "run.json")), "the run was finished twice");
   assert.deepEqual(outcome.record, delivered);
+});
+
+test("a run that is stopped before it starts ends without a child", async () => {
+  const runsDir = mkdtempSync(join(tmpdir(), "runs-"));
+
+  const run = createRun({
+    agent,
+    task: "task",
+    cwd: runsDir,
+    runsDir,
+    env: environment(runsDir, "0"),
+    timeoutMs: 0,
+  });
+
+  assert.equal(run.status, "queued");
+  run.stop("The run was stopped before it finished.");
+  assert.equal(run.status, "stopped");
+
+  // A later start does nothing, so the child never writes its argv file.
+  run.start();
+  const outcome = await run.done;
+
+  assert.equal(outcome.record.status, "stopped");
+  assert.equal(outcome.record.startedAt, undefined);
+  assert.match(outcome.message, /stopped before it finished/);
+  assert.equal(JSON.parse(readFileSync(join(run.dir, "run.json"), "utf8")).status, "stopped");
+  assert.ok(!existsSync(join(runsDir, "argv.json")), "no child ran");
 });

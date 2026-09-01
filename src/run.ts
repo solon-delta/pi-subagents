@@ -46,14 +46,28 @@ export interface RunOutcome {
   message: string;
 }
 
-export interface PreparedRun {
+/**
+ * One run, from its directory to its end. The module owns the status: the
+ * caller starts, stops and waits, and never writes the record itself.
+ */
+export interface Run {
   id: string;
   /** Directory with the transcript and the metadata record of this run. */
   dir: string;
-  record: RunRecord;
-  options: RunOptions;
-  /** The command line of the child, without the executable. */
-  args: string[];
+  /** The status of the run right now. */
+  readonly status: RunStatus;
+  /**
+   * Spawn the child. A run that was stopped while it waited for a slot does
+   * nothing here, and a second call does nothing.
+   */
+  start(): void;
+  /**
+   * End the run. A run that never started ends here, a running run loses its
+   * child. A run that already ended does not change.
+   */
+  stop(why: string): void;
+  /** Resolves when the run ends, whether or not a child ever ran. */
+  done: Promise<RunOutcome>;
 }
 
 /**
@@ -95,12 +109,12 @@ function writeRecord(dir: string, record: RunRecord): void {
 }
 
 /**
- * Give a run its id, its directory and its record. The child does not run yet,
- * so the record says "queued" until startRun spawns it. The command line is
- * built here, because an unknown tool name must fail the launch before the run
- * leaves a directory behind.
+ * Give a run its id, its directory and its record, and hand back the whole
+ * lifecycle. The child does not run yet, so the record says "queued" until
+ * start spawns it. The command line is built here, because an unknown tool name
+ * must fail the launch before the run leaves a directory behind.
  */
-export function prepareRun(options: RunOptions): PreparedRun {
+export function createRun(options: RunOptions): Run {
   const args = childArguments(options.agent);
   const id = randomBytes(4).toString("hex");
   const dir = join(options.runsDir, id);
@@ -116,74 +130,22 @@ export function prepareRun(options: RunOptions): PreparedRun {
     status: "queued",
   };
   writeRecord(dir, record);
-  writeFileSync(join(dir, "transcript.jsonl"), "");
-
-  return { id, dir, record, options, args };
-}
-
-/**
- * Finish a run whose child never started, because the run was stopped while it
- * waited for a free slot.
- */
-export function abandonRun(run: PreparedRun, why: string): RunOutcome {
-  const { dir, record } = run;
-  record.endedAt = new Date().toISOString();
-  record.status = "stopped";
-  writeRecord(dir, record);
-  return { record, message: resultMessage(record, why) };
-}
-
-/** A started run. The caller kills the child through it. */
-export interface RunHandle {
-  /**
-   * Kill the child and give the run the status. A run that already ended, and a
-   * run that was stopped before, do not change.
-   */
-  stop(status: "failed" | "stopped", why: string): void;
-  /** Resolves when the child ends. */
-  done: Promise<RunOutcome>;
-}
-
-/** Start the child pi process of a prepared run. */
-export function startRun(run: PreparedRun): RunHandle {
-  const { args, dir, record, options } = run;
   const transcript = join(dir, "transcript.jsonl");
-
-  record.startedAt = new Date().toISOString();
-  record.status = "running";
-  writeRecord(dir, record);
-
-  const child = spawn(piExecutable(options.env), args, {
-    cwd: options.cwd,
-    env: options.env,
-    stdio: ["pipe", "pipe", "pipe"],
-  });
-
-  // The task goes on stdin. See the comment on childArguments.
-  child.stdin.on("error", () => {});
-  child.stdin.end(options.task);
+  writeFileSync(transcript, "");
 
   const lines: string[] = [];
   const errors: string[] = [];
-  child.stdout.setEncoding("utf8");
-  child.stderr.setEncoding("utf8");
-  child.stderr.on("data", (chunk: string) => errors.push(chunk));
-
-  const reader = createInterface({ input: child.stdout });
-  reader.on("line", (line) => {
-    lines.push(line);
-    appendFileSync(transcript, `${line}\n`);
-  });
-
-  /** Set by stop, and read by finish, which owns the record. */
+  /** Set by end, and read by finish, which owns the record. */
   let killed: { status: "failed" | "stopped"; why: string } | undefined;
+  let child: ReturnType<typeof spawn> | undefined;
   let settled = false;
   let timer: NodeJS.Timeout | undefined;
 
+  // A failed spawn emits "error" and then "close", so both handlers run. The
+  // first one owns the outcome and the last write of the record.
+  let finish: (ok: boolean, failure: string) => void;
   const done = new Promise<RunOutcome>((resolve) => {
-    // A failed spawn emits "error" and then "close", so both handlers run. The
-    // first one owns the outcome and the last write of the record.
-    const finish = (ok: boolean, failure: string): void => {
+    finish = (ok, failure) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
@@ -196,20 +158,20 @@ export function startRun(run: PreparedRun): RunHandle {
       const text = killed?.why ?? assistantText(lines);
       resolve({ record, message: resultMessage(record, text === "" ? failure : text) });
     };
-
-    // The reader flushes a last line without a newline when stdout ends, which
-    // can be after the process itself is gone.
-    const streamEnded = new Promise<void>((end) => reader.on("close", () => end()));
-
-    child.on("error", (error) => finish(false, `The child did not start: ${error.message}`));
-    child.on("close", (code) => {
-      streamEnded.then(() => finish(code === 0, errors.join("").trim()));
-    });
   });
 
-  const stop = (status: "failed" | "stopped", why: string): void => {
+  /** End the run for a reason of ours: a stop by the caller, or the timeout. */
+  const end = (status: "failed" | "stopped", why: string): void => {
     if (settled || killed !== undefined) return;
     killed = { status, why };
+
+    if (child === undefined) {
+      // The run still waits for a slot. It has no child to kill, so it ends
+      // here, and start does nothing when the slot opens.
+      finish(false, why);
+      return;
+    }
+
     // The record carries the status now, and not only when the child is gone.
     // A pi session that shuts down does not wait for the child to close.
     record.status = status;
@@ -223,13 +185,60 @@ export function startRun(run: PreparedRun): RunHandle {
     child.kill("SIGKILL");
   };
 
-  if (options.timeoutMs > 0) {
-    const limit = `${options.timeoutMs / 60_000} minutes`;
-    timer = setTimeout(
-      () => stop("failed", `The run passed its limit of ${limit} and was killed.`),
-      options.timeoutMs,
-    );
-  }
+  const start = (): void => {
+    if (settled || killed !== undefined || child !== undefined) return;
 
-  return { stop, done };
+    record.startedAt = new Date().toISOString();
+    record.status = "running";
+    writeRecord(dir, record);
+
+    const spawned = spawn(piExecutable(options.env), args, {
+      cwd: options.cwd,
+      env: options.env,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    child = spawned;
+
+    // The task goes on stdin. See the comment on childArguments.
+    spawned.stdin.on("error", () => {});
+    spawned.stdin.end(options.task);
+
+    spawned.stdout.setEncoding("utf8");
+    spawned.stderr.setEncoding("utf8");
+    spawned.stderr.on("data", (chunk: string) => errors.push(chunk));
+
+    const reader = createInterface({ input: spawned.stdout });
+    reader.on("line", (line) => {
+      lines.push(line);
+      appendFileSync(transcript, `${line}\n`);
+    });
+
+    // The reader flushes a last line without a newline when stdout ends, which
+    // can be after the process itself is gone.
+    const streamEnded = new Promise<void>((ended) => reader.on("close", () => ended()));
+
+    spawned.on("error", (error) => finish(false, `The child did not start: ${error.message}`));
+    spawned.on("close", (code) => {
+      streamEnded.then(() => finish(code === 0, errors.join("").trim()));
+    });
+
+    if (options.timeoutMs > 0) {
+      const limit = `${options.timeoutMs / 60_000} minutes`;
+      timer = setTimeout(
+        () => end("failed", `The run passed its limit of ${limit} and was killed.`),
+        options.timeoutMs,
+      );
+    }
+  };
+
+  return {
+    id,
+    dir,
+    get status() {
+      return record.status;
+    },
+    start,
+    stop: (why) => end("stopped", why),
+    done,
+  };
 }

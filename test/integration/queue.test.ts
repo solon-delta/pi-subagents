@@ -7,7 +7,13 @@ import { fileURLToPath } from "node:url";
 
 import type { AgentDefinition } from "../../src/agent-file.ts";
 import { createRunQueue } from "../../src/queue.ts";
-import { prepareRun, startRun } from "../../src/run.ts";
+import { createRun, type Run, type RunOutcome } from "../../src/run.ts";
+
+/** Start a run and wait for its end. */
+function runStarted(run: Run): Promise<RunOutcome> {
+  run.start();
+  return run.done;
+}
 
 const fakePi = fileURLToPath(new URL("./fake-pi.mjs", import.meta.url));
 
@@ -43,7 +49,7 @@ test("no more children run together than the limit allows", async () => {
   const queued: string[] = [];
 
   for (let index = 0; index < 6; index += 1) {
-    const run = prepareRun({
+    const run = createRun({
       agent,
       task: `task ${index}`,
       cwd: runsDir,
@@ -53,7 +59,7 @@ test("no more children run together than the limit allows", async () => {
     });
     finished.push(
       new Promise<void>((done) => {
-        queue.add(() => startRun(run).done.then(() => done()));
+        queue.add(() => runStarted(run).then(() => done()));
       }),
     );
 
