@@ -1,10 +1,19 @@
 import assert from "node:assert/strict";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { setTimeout } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 
 import { createDispatcher, type Host } from "../../src/dispatch.ts";
 import type { RunRecord } from "../../src/run.ts";
@@ -28,8 +37,11 @@ interface Fake {
   cwd: string;
 }
 
-/** A host that a test drives by hand. The child is the fake pi script. */
-function fakeHost(userSettings: string): Fake {
+/**
+ * A host that a test drives by hand. The child is the fake pi script. The extra
+ * environment models the values that a parent subagent passes down.
+ */
+function fakeHost(userSettings: string, extraEnv: NodeJS.ProcessEnv = {}): Fake {
   chmodSync(fakePi, 0o755);
   const agentDir = mkdtempSync(join(tmpdir(), "dispatch-agent-"));
   writeFileSync(join(agentDir, "pi-subagents.json"), userSettings);
@@ -46,7 +58,7 @@ function fakeHost(userSettings: string): Fake {
     agentDir,
     projectTrusted: true,
     runsDir: () => runsDir,
-    env: { ...process.env, PI_SUBAGENTS_PI_BIN: fakePi },
+    env: { ...process.env, PI_SUBAGENTS_PI_BIN: fakePi, ...extraEnv },
     notify: (message, level) => notices.push({ message, level }),
     sendResult: (message, record) => {
       results.push(record);
@@ -148,6 +160,75 @@ test("an unknown agent name fails the dispatch", () => {
     () => createDispatcher(fake.host).dispatch("typo", "Find the entry point"),
     /Unknown agent "typo"/,
   );
+});
+
+test("a launch at the depth limit is refused and no run directory is written", () => {
+  const fake = fakeHost("{}", { PI_SUBAGENTS_DEPTH: "3", PI_SUBAGENTS_MAX_DEPTH: "3" });
+
+  assert.throws(
+    () => createDispatcher(fake.host).dispatch("explorer", "Find the entry point"),
+    (error: Error) => {
+      assert.match(error.message, /depth 3/);
+      assert.match(error.message, /limit of 3/);
+      return true;
+    },
+  );
+  assert.deepEqual(readdirSync(fake.runsDir), []);
+});
+
+test("the child of a run inherits the depth, the limit and the ceiling", async () => {
+  const envOut = join(mkdtempSync(join(tmpdir(), "dispatch-env-")), "env.json");
+  const fake = fakeHost("{}", {
+    PI_SUBAGENTS_DEPTH: "1",
+    PI_SUBAGENTS_MAX_DEPTH: "2",
+    FAKE_PI_ENV_OUT: envOut,
+  });
+
+  createDispatcher(fake.host).dispatch("explorer", "Find the entry point");
+  while (fake.results.length === 0) await setTimeout(20);
+
+  const childEnv: Record<string, string> = JSON.parse(readFileSync(envOut, "utf8"));
+  assert.equal(childEnv.PI_SUBAGENTS_DEPTH, "2");
+  assert.equal(childEnv.PI_SUBAGENTS_MAX_DEPTH, "2");
+  assert.equal(childEnv.PI_SUBAGENTS_TOOL_CEILING, "read,grep,find,ls");
+});
+
+test("a ceiling narrows the launch, records the removal and does not fail", async () => {
+  const fake = fakeHost("{}", { PI_SUBAGENTS_DEPTH: "1", PI_SUBAGENTS_TOOL_CEILING: "read,ls" });
+
+  const launch = createDispatcher(fake.host).dispatch("explorer", "Find the entry point");
+  while (fake.results.length === 0) await setTimeout(20);
+
+  assert.equal(launch.status, "running");
+  assert.match(launch.text, /may not grant grep, find/);
+  const record = JSON.parse(readFileSync(join(launch.dir, "run.json"), "utf8"));
+  assert.deepEqual(record.removedTools, ["grep", "find"]);
+  assert.equal(record.depth, 2);
+});
+
+test("a child that spawns a grandchild passes the depth and the ceiling down", async () => {
+  const nestDir = mkdtempSync(join(tmpdir(), "dispatch-nest-"));
+  const grandchildEnv = join(nestDir, "grandchild-env.json");
+  const fake = fakeHost("{}", {
+    FAKE_PI_NEST: nestDir,
+    FAKE_PI_NEST_AGENT: "gatherer",
+    FAKE_PI_NEST_ENV_OUT: grandchildEnv,
+  });
+
+  // The child works in the project directory, so it finds these agent files.
+  const agents = join(fake.cwd, CONFIG_DIR_NAME, "agents");
+  mkdirSync(agents, { recursive: true });
+  writeFileSync(join(agents, "splitter.md"), "---\ntools: [read, grep, subagent]\n---\nSplit.\n");
+  writeFileSync(join(agents, "gatherer.md"), "---\ntools: [read, bash]\n---\nGather.\n");
+
+  createDispatcher(fake.host).dispatch("splitter", "Split the work");
+  while (fake.results.length === 0) await setTimeout(20);
+
+  const env: Record<string, string> = JSON.parse(readFileSync(grandchildEnv, "utf8"));
+  assert.equal(env.PI_SUBAGENTS_DEPTH, "2");
+  assert.equal(env.PI_SUBAGENTS_MAX_DEPTH, "3");
+  // The child may not grant bash, because its own agent file does not name it.
+  assert.equal(env.PI_SUBAGENTS_TOOL_CEILING, "read");
 });
 
 /** The status in the record file of a run, which the child never writes. */

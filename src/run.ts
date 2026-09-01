@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 
 import type { AgentDefinition } from "./agent-file.ts";
+import type { ChildNesting } from "./nesting.ts";
 import { toolArguments } from "./tools.ts";
 import { assistantText } from "./transcript.ts";
 
@@ -15,6 +16,10 @@ export interface RunRecord {
   agent: string;
   /** The model of the agent file, or null when the agent file names none. */
   model: string | null;
+  /** Nesting depth of the child. A run of the user session has depth one. */
+  depth: number;
+  /** Tool names of the agent file that the ceiling of the parent removed. */
+  removedTools: string[];
   /** ISO timestamps. A queued run has no start time and no end time. */
   queuedAt: string;
   startedAt: string | undefined;
@@ -30,6 +35,8 @@ export function resultMessage(record: RunRecord, text: string): string {
 
 export interface RunOptions {
   agent: AgentDefinition;
+  /** Depth, limit and tool ceiling of this child. The tool list comes from here. */
+  nesting: ChildNesting;
   task: string;
   /** Working directory of the child. */
   cwd: string;
@@ -83,7 +90,7 @@ function piExecutable(env: NodeJS.ProcessEnv): string {
  * positional argument that starts with "@" as a file path, and it has no escape
  * for that, so the task goes to the child on stdin.
  */
-function childArguments(agent: AgentDefinition): string[] {
+function childArguments(agent: AgentDefinition, tools: string[]): string[] {
   const args = [
     "--mode",
     "json",
@@ -91,7 +98,7 @@ function childArguments(agent: AgentDefinition): string[] {
     "--no-extensions",
     "--no-skills",
     "--no-context-files",
-    ...toolArguments(agent.tools, agent.name),
+    ...toolArguments(tools, agent.name),
   ];
 
   if (agent.model !== undefined) args.push("--model", agent.model);
@@ -115,7 +122,7 @@ function writeRecord(dir: string, record: RunRecord): void {
  * must fail the launch before the run leaves a directory behind.
  */
 export function createRun(options: RunOptions): Run {
-  const args = childArguments(options.agent);
+  const args = childArguments(options.agent, options.nesting.tools);
   const id = randomBytes(4).toString("hex");
   const dir = join(options.runsDir, id);
   mkdirSync(dir, { recursive: true });
@@ -124,6 +131,8 @@ export function createRun(options: RunOptions): Run {
     id,
     agent: options.agent.name,
     model: options.agent.model ?? null,
+    depth: options.nesting.depth,
+    removedTools: options.nesting.removed,
     queuedAt: new Date().toISOString(),
     startedAt: undefined,
     endedAt: undefined,
@@ -194,7 +203,9 @@ export function createRun(options: RunOptions): Run {
 
     const spawned = spawn(piExecutable(options.env), args, {
       cwd: options.cwd,
-      env: options.env,
+      // The nesting values travel to the child, which reads them when it
+      // launches a child of its own.
+      env: { ...options.env, ...options.nesting.env },
       stdio: ["pipe", "pipe", "pipe"],
     });
     child = spawned;

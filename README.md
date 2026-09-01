@@ -25,6 +25,7 @@ name: explorer
 description: Reads a codebase and answers a question about it.
 tools: [read, grep, find, ls]
 model: anthropic/claude-sonnet-5
+maxDepth: 2
 systemPromptMode: replace
 ---
 
@@ -33,7 +34,8 @@ You explore a codebase and answer one question about it.
 
 The `tools` key is required. A file without it fails the launch. The
 `systemPromptMode` key is `replace` by default; `append` keeps the pi base
-prompt and adds the body.
+prompt and adds the body. The `maxDepth` key lowers the depth limit of the tree
+below this agent. See Nesting.
 
 Agent files are read from three roots, in this order.
 
@@ -87,9 +89,34 @@ once, on the first call of the `subagent` tool.
 
 `agentDirs` adds agent roots. They are searched after the user root and before
 the bundled root. A leading `~` is expanded. `defaultModel` is used by an agent
-file without a `model` key. `maxConcurrency` and `timeoutMinutes` are
-enforced. A `timeoutMinutes` of zero means that a run has no time limit. The
-limit `maxDepth` is read, but the code that enforces it is not written yet.
+file without a `model` key. A `timeoutMinutes` of zero means that a run has no
+time limit. `maxDepth` bounds a chain of subagents. See Nesting.
+
+## Nesting
+
+An agent whose `tools` list holds `subagent` can split its own task. Two guards
+bound the tree of processes.
+
+The first guard is the depth. A session that you start has depth zero, its
+subagent has depth one, and every level adds one. A launch at or above the limit
+is refused before the process starts, and the message names the depth and the
+limit. The limit comes from the environment of the process, then from
+`maxDepth` in the settings, then from a default of three. An agent file with a
+`maxDepth` key lowers the limit for the tree below it. A larger value is
+ignored, so one agent file cannot defeat your setting.
+
+The second guard is the capability ceiling. The ceiling is the set of tool names
+that a process may grant. Your own session has no ceiling, so a first launch
+grants every tool the agent file names. Every launch intersects the agent tool
+list with the ceiling, and the result becomes the ceiling of the new child. An
+agent restricted to reading therefore cannot give its own child a shell,
+whatever the agent file of that child says. A removed tool does not fail the
+launch. The tool answer names the removed tools, and `run.json` records them.
+
+Three environment values carry the guards to a child: `PI_SUBAGENTS_DEPTH`,
+`PI_SUBAGENTS_MAX_DEPTH` and `PI_SUBAGENTS_TOOL_CEILING`. A process that clears
+them looks like a root process to the extension, so the guards bound an agent
+that follows the rules. They are not a sandbox around an agent with a shell.
 
 ## Concurrency
 
@@ -115,9 +142,10 @@ shutdown handler kills every live child.
 
 Each run gets a directory under the session directory:
 `<session dir>/subagents/<session id>/<run id>/`. It holds `transcript.jsonl`
-with every child event and `run.json` with the agent name, the model, the queue
-time, the start time, the end time, and the status. The status is `queued`,
-`running`, `completed`, `failed` or `stopped`. Nothing is deleted.
+with every child event and `run.json` with the agent name, the model, the depth,
+the tools the ceiling removed, the queue time, the start time, the end time, and
+the status. The status is `queued`, `running`, `completed`, `failed` or
+`stopped`. Nothing is deleted.
 
 ## Development
 

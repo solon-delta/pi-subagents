@@ -6,6 +6,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import type { AgentDefinition } from "../../src/agent-file.ts";
+import { childNesting } from "../../src/nesting.ts";
 import { createRunQueue } from "../../src/queue.ts";
 import { createRun, type Run, type RunOutcome } from "../../src/run.ts";
 
@@ -22,6 +23,7 @@ const agent: AgentDefinition = {
   description: "Explores a codebase",
   tools: [],
   model: undefined,
+  maxDepth: undefined,
   systemPromptMode: "replace",
   systemPrompt: "You explore.",
   file: "/agents/explorer.md",
@@ -51,6 +53,7 @@ test("no more children run together than the limit allows", async () => {
   for (let index = 0; index < 6; index += 1) {
     const run = createRun({
       agent,
+      nesting: childNesting({ depth: 0, limit: 3, ceiling: undefined }, agent),
       task: `task ${index}`,
       cwd: runsDir,
       runsDir,

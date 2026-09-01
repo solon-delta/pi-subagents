@@ -7,7 +7,18 @@ import { setTimeout } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
 import type { AgentDefinition } from "../../src/agent-file.ts";
+import { type ChildNesting, childNesting } from "../../src/nesting.ts";
 import { createRun, type Run, type RunOutcome } from "../../src/run.ts";
+
+interface AgentLaunch {
+  agent: AgentDefinition;
+  nesting: ChildNesting;
+}
+
+/** A root launch of one agent: depth one, no ceiling, every tool of the file. */
+function rootLaunch(agent: AgentDefinition): AgentLaunch {
+  return { agent, nesting: childNesting({ depth: 0, limit: 3, ceiling: undefined }, agent) };
+}
 
 /** Start a run and wait for its end. */
 function runStarted(run: Run): Promise<RunOutcome> {
@@ -22,6 +33,7 @@ const agent: AgentDefinition = {
   description: "Reviews a diff",
   tools: ["read", "grep"],
   model: "anthropic/claude-sonnet-5",
+  maxDepth: undefined,
   systemPromptMode: "replace",
   systemPrompt: "You review code.",
   file: "/agents/reviewer.md",
@@ -42,7 +54,7 @@ test("a run drives the fake child and reports its answer", async () => {
   const runsDir = mkdtempSync(join(tmpdir(), "runs-"));
 
   const run = createRun({
-    agent,
+    ...rootLaunch(agent),
     task: "Review the diff",
     cwd: runsDir,
     runsDir,
@@ -91,7 +103,7 @@ test("a task that starts with @ reaches the child unchanged", async () => {
   const runsDir = mkdtempSync(join(tmpdir(), "runs-"));
 
   const run = createRun({
-    agent,
+    ...rootLaunch(agent),
     task: "@types migration",
     cwd: runsDir,
     runsDir,
@@ -109,7 +121,13 @@ test("an append agent without tools gets the append flag and --no-tools", async 
   const runsDir = mkdtempSync(join(tmpdir(), "runs-"));
 
   const run = createRun({
-    agent: { ...agent, tools: [], model: undefined, systemPromptMode: "append", systemPrompt: "" },
+    ...rootLaunch({
+      ...agent,
+      tools: [],
+      model: undefined,
+      systemPromptMode: "append",
+      systemPrompt: "",
+    }),
     task: "task",
     cwd: runsDir,
     runsDir,
@@ -137,7 +155,7 @@ test("a tool name of this extension puts the extension file on the command line"
   const self = fileURLToPath(new URL("../../index.ts", import.meta.url));
 
   const run = createRun({
-    agent: { ...agent, tools: ["read", "subagent", "subagent_stop"], model: undefined },
+    ...rootLaunch({ ...agent, tools: ["read", "subagent", "subagent_stop"], model: undefined }),
     task: "Split the work",
     cwd: runsDir,
     runsDir,
@@ -169,7 +187,7 @@ test("an unknown tool name fails the launch and writes no run directory", () => 
   assert.throws(
     () =>
       createRun({
-        agent: { ...agent, tools: ["read", "webserch"] },
+        ...rootLaunch({ ...agent, tools: ["read", "webserch"] }),
         task: "Review the diff",
         cwd: runsDir,
         runsDir,
@@ -185,7 +203,7 @@ test("a non-zero exit fails the run and keeps the transcript", async () => {
   const runsDir = mkdtempSync(join(tmpdir(), "runs-"));
 
   const run = createRun({
-    agent: { ...agent, model: undefined },
+    ...rootLaunch({ ...agent, model: undefined }),
     task: "Review the diff",
     cwd: runsDir,
     runsDir,
@@ -205,7 +223,7 @@ test("a missing executable fails the run", async () => {
   const runsDir = mkdtempSync(join(tmpdir(), "runs-"));
 
   const run = createRun({
-    agent,
+    ...rootLaunch(agent),
     task: "task",
     cwd: runsDir,
     runsDir,
@@ -233,7 +251,7 @@ test("a run that is stopped before it starts ends without a child", async () => 
   const runsDir = mkdtempSync(join(tmpdir(), "runs-"));
 
   const run = createRun({
-    agent,
+    ...rootLaunch(agent),
     task: "task",
     cwd: runsDir,
     runsDir,
