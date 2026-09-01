@@ -182,7 +182,7 @@ test("the run directory sits under the session directory of the session manager"
   assert.ok(existsSync(join(dir, "run.json")), `no metadata record under ${dir}`);
 });
 
-test("a spawn above the limit is queued and starts after the tool call returns", async () => {
+test("a spawn above the limit is queued and starts after the parent turn ends", async () => {
   const { runner, sent, cwd, runDir } = await harness();
   mkdirSync(join(cwd, CONFIG_DIR_NAME), { recursive: true });
   writeFileSync(join(cwd, CONFIG_DIR_NAME, "pi-subagents.json"), '{"maxConcurrency": 1}');
@@ -200,7 +200,10 @@ test("a spawn above the limit is queued and starts after the tool call returns",
     assert.equal(status(second.runId), "queued");
     assert.equal(sent.length, 0, "no answer arrives while the tool calls run");
 
-    // The parent turn is over here. The queue must still drain.
+    // The parent turn ends here. pi fires this event when a run has settled
+    // and nothing else in the turn will follow. The queue must still drain.
+    await runner.emit({ type: "agent_settled" });
+
     while (sent.length < 2) await setTimeout(20);
     assert.equal(status(second.runId), "completed");
   } finally {
