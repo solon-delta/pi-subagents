@@ -1,7 +1,14 @@
 #!/usr/bin/env node
 // A fake pi executable. It records its arguments and its stdin, prints canned
 // JSONL events, and exits with a chosen code. This is the single test seam.
-import { readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
+import { setTimeout } from "node:timers/promises";
+
+// The run log of the concurrency test. Each child writes one line when it
+// starts and one line when it ends, and it holds the slot in between.
+const log = process.env.FAKE_PI_LOG;
+if (log !== undefined) appendFileSync(log, "start\n");
+await setTimeout(Number(process.env.FAKE_PI_HOLD_MS ?? "0"));
 
 const argvOut = process.env.FAKE_PI_ARGV_OUT;
 if (argvOut !== undefined) writeFileSync(argvOut, JSON.stringify(process.argv.slice(2)));
@@ -20,6 +27,8 @@ const events = [
   { type: "agent_end" },
 ];
 for (const event of events) process.stdout.write(`${JSON.stringify(event)}\n`);
+
+if (log !== undefined) appendFileSync(log, "end\n");
 
 const code = Number(process.env.FAKE_PI_EXIT ?? "0");
 if (code !== 0) process.stderr.write("the fake child failed\n");

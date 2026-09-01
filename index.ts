@@ -9,7 +9,8 @@ import {
 import { Type } from "typebox";
 
 import { agentRoots, loadAgent } from "./src/agents.ts";
-import { startRun } from "./src/run.ts";
+import { createRunQueue, type RunQueue } from "./src/queue.ts";
+import { prepareRun, startRun } from "./src/run.ts";
 import { loadSettings, type Settings, settingsFiles, withDefaultModel } from "./src/settings.ts";
 
 const DESCRIPTION = [
@@ -34,6 +35,13 @@ export default function (pi: ExtensionAPI) {
     return settings;
   };
 
+  /** The queue of the session. It keeps draining after the parent turn ends. */
+  let queue: RunQueue | undefined;
+  const sessionQueue = (ctx: ExtensionContext): RunQueue => {
+    queue ??= createRunQueue(sessionSettings(ctx).maxConcurrency);
+    return queue;
+  };
+
   pi.registerTool({
     name: "subagent",
     label: "Subagent",
@@ -54,7 +62,7 @@ export default function (pi: ExtensionAPI) {
         ctx.sessionManager.getSessionId(),
       );
 
-      const started = startRun({
+      const run = prepareRun({
         agent,
         task: params.task,
         cwd: ctx.cwd,
@@ -62,30 +70,32 @@ export default function (pi: ExtensionAPI) {
         env: process.env,
       });
 
-      started.finished
-        .then((outcome) => {
-          pi.sendMessage(
-            {
-              customType: "subagent_result",
-              content: outcome.message,
-              display: true,
-              details: outcome.record,
-            },
-            { triggerTurn: true, deliverAs: "steer" },
-          );
-        })
-        .catch((error: Error) => {
-          ctx.ui.notify(`Subagent run ${started.id} was lost: ${error.message}`, "error");
-        });
+      const started = sessionQueue(ctx).add(run.id, () =>
+        startRun(run).then(
+          (outcome) => {
+            pi.sendMessage(
+              {
+                customType: "subagent_result",
+                content: outcome.message,
+                display: true,
+                details: outcome.record,
+              },
+              { triggerTurn: true, deliverAs: "steer" },
+            );
+          },
+          (error: Error) => {
+            ctx.ui.notify(`Subagent run ${run.id} was lost: ${error.message}`, "error");
+          },
+        ),
+      );
+
+      const head = started
+        ? `Started subagent "${agent.name}" as run ${run.id}.`
+        : `Queued subagent "${agent.name}" as run ${run.id}. It starts when a slot is free.`;
 
       return {
-        content: [
-          {
-            type: "text",
-            text: `Started subagent "${agent.name}" as run ${started.id}. Do not poll for the result.`,
-          },
-        ],
-        details: { runId: started.id, dir: started.dir },
+        content: [{ type: "text", text: `${head} Do not poll for the result.` }],
+        details: { runId: run.id, dir: run.dir, status: run.record.status },
       };
     },
   });
