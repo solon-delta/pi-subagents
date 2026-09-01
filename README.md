@@ -49,8 +49,8 @@ shadows a file of the same agent name in a later root.
 
 A `tools` entry is a plain tool name, never a path. Two kinds of name work.
 
-- A pi built-in: `read`, `bash`, `powershell`, `edit`, `write`, `grep`, `find`,
-  `ls`.
+- A pi built-in: `read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`, and
+  `powershell` on Windows.
 - A name that an extension file backs. This package backs `subagent` and
   `subagent_stop`.
 

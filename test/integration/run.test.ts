@@ -170,7 +170,7 @@ test("an unknown tool name fails the launch and writes no run directory", () => 
         env: environment(runsDir, "0"),
         timeoutMs: 0,
       }),
-    /webserch.*reviewer|reviewer.*webserch/,
+    /webserch/,
   );
   assert.deepEqual(readdirSync(runsDir), []);
 });

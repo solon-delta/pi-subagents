@@ -4,7 +4,10 @@ import { fileURLToPath } from "node:url";
 const SELF = fileURLToPath(new URL("../index.ts", import.meta.url));
 
 /** The tool names that pi provides itself. They need no extension file. */
-const BUILT_IN = new Set(["bash", "edit", "find", "grep", "ls", "powershell", "read", "write"]);
+const BUILT_IN = new Set(["bash", "edit", "find", "grep", "ls", "read", "write"]);
+// pi provides the shell tool of the platform. A Linux agent file that names
+// powershell would otherwise pass with a tool that the child never gets.
+if (process.platform === "win32") BUILT_IN.add("powershell");
 
 /**
  * The tool names that an extension file provides, with the file of each one. A
@@ -21,7 +24,7 @@ const EXTENSIONS = new Map<string, string>([
  * child receives the exact allowlist. Each extension file is named once, even
  * when two tool names come from it. Throws when a name is unknown.
  */
-export function toolArguments(tools: string[], agent: string): string[] {
+export function toolArguments(tools: string[], agentName: string): string[] {
   if (tools.length === 0) return ["--no-tools"];
 
   const files = new Set<string>();
@@ -29,7 +32,7 @@ export function toolArguments(tools: string[], agent: string): string[] {
     const file = EXTENSIONS.get(tool);
     if (file !== undefined) files.add(file);
     else if (!BUILT_IN.has(tool)) {
-      throw new Error(`Unknown tool "${tool}" in agent "${agent}".`);
+      throw new Error(`Unknown tool "${tool}" in agent "${agentName}"`);
     }
   }
 
