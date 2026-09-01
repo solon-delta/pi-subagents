@@ -112,7 +112,11 @@ async function harness() {
   chmodSync(fakePi, 0o755);
   process.env.PI_SUBAGENTS_PI_BIN = fakePi;
 
-  return { runner, sessionManager, sent, delivered, cwd };
+  /** Where the extension keeps the state of one run. */
+  const runDir = (runId: string): string =>
+    join(sessionManager.getSessionDir(), "subagents", sessionManager.getSessionId(), runId);
+
+  return { runner, sent, delivered, cwd, runDir };
 }
 
 function subagentTool(runner: ExtensionRunner) {
@@ -169,39 +173,23 @@ test("the tool returns a run id before the child finishes", async () => {
 });
 
 test("the run directory sits under the session directory of the session manager", async () => {
-  const { runner, sessionManager } = await harness();
+  const { runner, runDir } = await harness();
 
   const { runId } = await callSubagent(runner, "Find the entry point");
 
-  const dir = join(
-    sessionManager.getSessionDir(),
-    "subagents",
-    sessionManager.getSessionId(),
-    runId,
-  );
+  const dir = runDir(runId);
   assert.ok(existsSync(join(dir, "transcript.jsonl")), `no transcript under ${dir}`);
   assert.ok(existsSync(join(dir, "run.json")), `no metadata record under ${dir}`);
 });
 
 test("a spawn above the limit is queued and starts after the tool call returns", async () => {
-  const { runner, sessionManager, sent, cwd } = await harness();
+  const { runner, sent, cwd, runDir } = await harness();
   mkdirSync(join(cwd, CONFIG_DIR_NAME), { recursive: true });
   writeFileSync(join(cwd, CONFIG_DIR_NAME, "pi-subagents.json"), '{"maxConcurrency": 1}');
   process.env.FAKE_PI_HOLD_MS = "150";
 
-  const record = (runId: string) =>
-    JSON.parse(
-      readFileSync(
-        join(
-          sessionManager.getSessionDir(),
-          "subagents",
-          sessionManager.getSessionId(),
-          runId,
-          "run.json",
-        ),
-        "utf8",
-      ),
-    );
+  const status = (runId: string): string =>
+    JSON.parse(readFileSync(join(runDir(runId), "run.json"), "utf8")).status;
 
   try {
     const first = await callSubagent(runner, "Find the entry point");
@@ -209,12 +197,12 @@ test("a spawn above the limit is queued and starts after the tool call returns",
 
     assert.match(first.text, /^Started subagent/);
     assert.match(second.text, /^Queued subagent/);
-    assert.equal(record(second.runId).status, "queued");
+    assert.equal(status(second.runId), "queued");
     assert.equal(sent.length, 0, "no answer arrives while the tool calls run");
 
     // The parent turn is over here. The queue must still drain.
     while (sent.length < 2) await setTimeout(20);
-    assert.equal(record(second.runId).status, "completed");
+    assert.equal(status(second.runId), "completed");
   } finally {
     delete process.env.FAKE_PI_HOLD_MS;
   }

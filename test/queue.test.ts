@@ -5,7 +5,7 @@ import { setImmediate } from "node:timers/promises";
 import { createRunQueue } from "../src/queue.ts";
 
 interface Gate {
-  /** Resolves when the queue starts this run. */
+  /** True once the queue has started this run. */
   started: boolean;
   /** Ends the run. */
   finish: () => void;
@@ -30,7 +30,8 @@ test("a run below the limit starts at once", () => {
   const queue = createRunQueue(2);
   const first = gate();
 
-  assert.equal(queue.add("a", first.start), true);
+  queue.add("a", first.start);
+
   assert.equal(first.started, true);
 });
 
@@ -40,7 +41,7 @@ test("a run above the limit waits for a free slot", async () => {
 
   queue.add("a", first.start);
   queue.add("b", second.start);
-  assert.equal(queue.add("c", third.start), false);
+  queue.add("c", third.start);
   assert.equal(third.started, false);
 
   first.finish();

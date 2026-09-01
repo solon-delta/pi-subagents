@@ -1,9 +1,6 @@
 export interface RunQueue {
-  /**
-   * Take one run. It starts at once when a slot is free, and the return value
-   * says which happened. A queued run starts when a slot frees.
-   */
-  add(id: string, start: () => Promise<void>): boolean;
+  /** Take one run. It starts at once when a slot is free, and waits otherwise. */
+  add(id: string, start: () => Promise<void>): void;
   /** Drop a run that waits. Returns false when the run is not in the queue. */
   stop(id: string): boolean;
 }
@@ -28,18 +25,16 @@ export function createRunQueue(limit: number): RunQueue {
         running -= 1;
         pump();
       };
-      // A start that throws must free its slot too. The async wrapper turns
-      // that throw into a rejection, and it still calls start right now.
-      void (async () => await next.start())().then(free, free);
+      // A start that throws must free its slot too. The executor turns that
+      // throw into a rejection, and it still calls start right now.
+      void new Promise<void>((resolve) => resolve(next.start())).then(free, free);
     }
   };
 
   return {
     add(id, start) {
       waiting.push({ id, start });
-      const queued = waiting.length > 1 || running >= limit;
       pump();
-      return !queued;
     },
     stop(id) {
       const index = waiting.findIndex((item) => item.id === id);

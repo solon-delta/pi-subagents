@@ -22,10 +22,10 @@ const agent: AgentDefinition = {
 };
 
 /** The highest number of children that the log shows at the same time. */
-function peak(log: string): number {
+function peak(lines: string[]): number {
   let running = 0;
   let highest = 0;
-  for (const line of log.trim().split("\n")) {
+  for (const line of lines) {
     running += line === "start" ? 1 : -1;
     highest = Math.max(highest, running);
   }
@@ -54,13 +54,10 @@ test("no more children run together than the limit allows", async () => {
 
     finished.push(
       new Promise<void>((done) => {
-        const started = queue.add(run.id, async () => {
-          await startRun(run);
-          done();
-        });
-        if (!started) queued.push(run.id);
+        queue.add(run.id, () => startRun(run).then(() => done()));
       }),
     );
+    if (run.record.status === "queued") queued.push(run.id);
   }
 
   assert.deepEqual(queued.length, 4, "four of the six runs wait");
@@ -68,5 +65,5 @@ test("no more children run together than the limit allows", async () => {
 
   const lines = readFileSync(log, "utf8").trim().split("\n");
   assert.equal(lines.length, 12, "every run starts and ends once");
-  assert.equal(peak(lines.join("\n")), 2);
+  assert.equal(peak(lines), 2);
 });

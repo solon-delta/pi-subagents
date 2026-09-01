@@ -70,7 +70,7 @@ export default function (pi: ExtensionAPI) {
         env: process.env,
       });
 
-      const started = sessionQueue(ctx).add(run.id, () =>
+      sessionQueue(ctx).add(run.id, () =>
         startRun(run).then(
           (outcome) => {
             pi.sendMessage(
@@ -89,9 +89,12 @@ export default function (pi: ExtensionAPI) {
         ),
       );
 
-      const head = started
-        ? `Started subagent "${agent.name}" as run ${run.id}.`
-        : `Queued subagent "${agent.name}" as run ${run.id}. It starts when a slot is free.`;
+      // The record is the one source: the queue leaves it at "queued" when
+      // every slot is taken, and startRun sets "running".
+      const head =
+        run.record.status === "queued"
+          ? `Queued subagent "${agent.name}" as run ${run.id}. It starts when a slot is free.`
+          : `Started subagent "${agent.name}" as run ${run.id}.`;
 
       return {
         content: [{ type: "text", text: `${head} Do not poll for the result.` }],
