@@ -113,11 +113,7 @@ async function harness() {
   process.env.PI_SUBAGENTS_PI_BIN = fakePi;
 
   /** Where the extension keeps the state of every run of this session. */
-  const runsDir = join(
-    sessionManager.getSessionDir(),
-    "subagents",
-    sessionManager.getSessionId(),
-  );
+  const runsDir = join(sessionManager.getSessionDir(), "subagents", sessionManager.getSessionId());
   /** Where the extension keeps the state of one run. */
   const runDir = (runId: string): string => join(runsDir, runId);
 
