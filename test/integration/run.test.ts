@@ -41,10 +41,11 @@ test("a run drives the fake child and reports its answer", async () => {
     cwd: runsDir,
     runsDir,
     env: environment(runsDir, "0"),
+    timeoutMs: 0,
   });
 
   assert.match(run.id, /^[0-9a-f]{8}$/);
-  const outcome = await startRun(run);
+  const outcome = await startRun(run).done;
 
   const argv: string[] = JSON.parse(readFileSync(join(runsDir, "argv.json"), "utf8"));
   assert.deepEqual(argv, [
@@ -89,8 +90,9 @@ test("a task that starts with @ reaches the child unchanged", async () => {
     cwd: runsDir,
     runsDir,
     env: environment(runsDir, "0"),
+    timeoutMs: 0,
   });
-  await startRun(run);
+  await startRun(run).done;
 
   assert.equal(readFileSync(join(runsDir, "stdin.txt"), "utf8"), "@types migration");
   const argv: string[] = JSON.parse(readFileSync(join(runsDir, "argv.json"), "utf8"));
@@ -106,8 +108,9 @@ test("an append agent without tools gets the append flag and --no-tools", async 
     cwd: runsDir,
     runsDir,
     env: environment(runsDir, "0"),
+    timeoutMs: 0,
   });
-  await startRun(run);
+  await startRun(run).done;
 
   const argv: string[] = JSON.parse(readFileSync(join(runsDir, "argv.json"), "utf8"));
   assert.deepEqual(argv, [
@@ -132,8 +135,9 @@ test("a non-zero exit fails the run and keeps the transcript", async () => {
     cwd: runsDir,
     runsDir,
     env: environment(runsDir, "3"),
+    timeoutMs: 0,
   });
-  const outcome = await startRun(run);
+  const outcome = await startRun(run).done;
 
   assert.equal(outcome.record.status, "failed");
   assert.equal(JSON.parse(readFileSync(join(run.dir, "run.json"), "utf8")).model, null);
@@ -151,8 +155,9 @@ test("a missing executable fails the run", async () => {
     cwd: runsDir,
     runsDir,
     env: { ...process.env, PI_SUBAGENTS_PI_BIN: join(runsDir, "no-such-pi") },
+    timeoutMs: 0,
   });
-  const outcome = await startRun(run);
+  const outcome = await startRun(run).done;
 
   assert.equal(outcome.record.status, "failed");
   assert.match(outcome.message, /did not start/);

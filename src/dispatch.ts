@@ -1,6 +1,13 @@
 import { loadAgent } from "./agents.ts";
 import { createRunQueue } from "./queue.ts";
-import { prepareRun, type RunRecord, startRun } from "./run.ts";
+import {
+  abandonRun,
+  type PreparedRun,
+  prepareRun,
+  type RunHandle,
+  type RunRecord,
+  startRun,
+} from "./run.ts";
 import { loadSettings, settingsFiles } from "./settings.ts";
 
 /**
@@ -37,7 +44,24 @@ export interface Launch {
 export interface Dispatcher {
   /** Launch one agent on one task. The child works after this returns. */
   dispatch(agent: string, task: string): Launch;
+  /**
+   * Kill the child of one run. Returns the sentence that the caller shows. An
+   * unknown run and a run that already ended change nothing.
+   */
+  stop(runId: string): string;
+  /** Kill the child of every live run. The session shutdown handler calls this. */
+  stopAll(): void;
 }
+
+/** One run of the session. It stays here after its child ends. */
+interface TrackedRun {
+  run: PreparedRun;
+  /** The handle of the child, or undefined while the run waits for a slot. */
+  handle: RunHandle | undefined;
+}
+
+const STOPPED = "The run was stopped before it finished.";
+const SHUTDOWN = "The run was stopped by the end of the pi session.";
 
 /**
  * One dispatcher per session. It reads the settings once, because the caller
@@ -51,6 +75,32 @@ export function createDispatcher(host: Host): Dispatcher {
 
   // The queue outlives the parent turn, so a queued run still starts later.
   const queue = createRunQueue(settings.maxConcurrency);
+  // Every run of the session, by id. A finished run stays here, so that a stop
+  // can tell an unknown run from a run that already ended.
+  const runs = new Map<string, TrackedRun>();
+
+  /** Stop one run for one reason. Both public stops go through this. */
+  const stopRun = (runId: string, why: string): string => {
+    const tracked = runs.get(runId);
+    if (tracked === undefined)
+      return `No subagent run "${runId}" in this session. Nothing changed.`;
+
+    const record = tracked.run.record;
+    if (record.status !== "queued" && record.status !== "running") {
+      return `Subagent run ${runId} already ${record.status}. Nothing changed.`;
+    }
+
+    if (tracked.handle === undefined) {
+      // The run still waits for a slot. It has no child to kill, so it ends
+      // here, and the queue skips it when a slot opens.
+      const outcome = abandonRun(tracked.run, why);
+      host.sendResult(outcome.message, outcome.record);
+      return `Stopped queued subagent run ${runId}.`;
+    }
+
+    tracked.handle.stop("stopped", why);
+    return `Stopped subagent run ${runId}.`;
+  };
 
   return {
     dispatch(name, task) {
@@ -64,15 +114,23 @@ export function createDispatcher(host: Host): Dispatcher {
         cwd,
         runsDir: host.runsDir(),
         env: host.env,
+        timeoutMs: settings.timeoutMinutes * 60_000,
       });
 
-      const started = queue.add(() =>
-        startRun(run).then(
+      const tracked: TrackedRun = { run, handle: undefined };
+      runs.set(run.id, tracked);
+
+      const started = queue.add(() => {
+        // A run that was stopped in the queue must not spawn a child now.
+        if (run.record.status === "stopped") return Promise.resolve();
+
+        tracked.handle = startRun(run);
+        return tracked.handle.done.then(
           (outcome) => host.sendResult(outcome.message, outcome.record),
           (error: Error) =>
             host.notify(`Subagent run ${run.id} was lost: ${error.message}`, "error"),
-        ),
-      );
+        );
+      });
 
       const head = started
         ? `Started subagent "${agent.name}" as run ${run.id}.`
@@ -84,6 +142,16 @@ export function createDispatcher(host: Host): Dispatcher {
         status: started ? "running" : "queued",
         text: `${head} Do not poll for the result.`,
       };
+    },
+
+    stop(runId) {
+      return stopRun(runId, STOPPED);
+    },
+
+    stopAll() {
+      // A queued run is stopped too. It would otherwise start a child while the
+      // session goes away.
+      for (const runId of runs.keys()) stopRun(runId, SHUTDOWN);
     },
   };
 }

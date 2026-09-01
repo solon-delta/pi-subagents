@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmodSync, existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -21,6 +21,8 @@ interface Fake {
   /** What the host was told, in arrival order. */
   notices: Notice[];
   results: RunRecord[];
+  /** The result text of each finished run, in the same order as `results`. */
+  messages: string[];
   /** The current runs directory. A test moves it to model a later tool call. */
   runsDir: string;
   cwd: string;
@@ -34,6 +36,7 @@ function fakeHost(userSettings: string): Fake {
 
   const notices: Notice[] = [];
   const results: RunRecord[] = [];
+  const messages: string[] = [];
   let runsDir = mkdtempSync(join(tmpdir(), "dispatch-runs-"));
   let cwd = mkdtempSync(join(tmpdir(), "dispatch-cwd-"));
 
@@ -45,13 +48,17 @@ function fakeHost(userSettings: string): Fake {
     runsDir: () => runsDir,
     env: { ...process.env, PI_SUBAGENTS_PI_BIN: fakePi },
     notify: (message, level) => notices.push({ message, level }),
-    sendResult: (_message, record) => results.push(record),
+    sendResult: (message, record) => {
+      results.push(record);
+      messages.push(message);
+    },
   };
 
   return {
     host,
     notices,
     results,
+    messages,
     get runsDir() {
       return runsDir;
     },
@@ -141,4 +148,115 @@ test("an unknown agent name fails the dispatch", () => {
     () => createDispatcher(fake.host).dispatch("typo", "Find the entry point"),
     /Unknown agent "typo"/,
   );
+});
+
+/** The status in the record file of a run, which the child never writes. */
+function fileStatus(dir: string): string {
+  return JSON.parse(readFileSync(join(dir, "run.json"), "utf8")).status;
+}
+
+/**
+ * A host whose children never exit. The caller stops every run it starts, or
+ * the child holds the test process open.
+ */
+function hangingHost(userSettings: string): Fake {
+  process.env.FAKE_PI_HANG = "1";
+  try {
+    return fakeHost(userSettings);
+  } finally {
+    delete process.env.FAKE_PI_HANG;
+  }
+}
+
+test("a stopped run gets the stopped status and keeps its transcript", async () => {
+  const fake = hangingHost("{}");
+  const dispatcher = createDispatcher(fake.host);
+
+  const launch = dispatcher.dispatch("explorer", "Find the entry point");
+  // The child prints its events and then hangs. Stop it once it has written.
+  const transcript = join(launch.dir, "transcript.jsonl");
+  while (readFileSync(transcript, "utf8") === "") await setTimeout(20);
+
+  assert.equal(dispatcher.stop(launch.id), `Stopped subagent run ${launch.id}.`);
+  while (fake.results.length === 0) await setTimeout(20);
+
+  assert.equal(fake.results[0].id, launch.id);
+  assert.equal(fake.results[0].status, "stopped");
+  assert.equal(fileStatus(launch.dir), "stopped");
+  assert.match(fake.messages[0], /stopped before it finished/);
+  assert.ok(readFileSync(transcript, "utf8").length > 0, "the transcript was dropped");
+});
+
+test("a run that passes the time limit is killed and fails", async () => {
+  // 0.005 minutes is 300 milliseconds.
+  const fake = hangingHost('{"timeoutMinutes": 0.005}');
+
+  const launch = createDispatcher(fake.host).dispatch("explorer", "Find the entry point");
+  while (fake.results.length === 0) await setTimeout(20);
+
+  assert.equal(fake.results[0].status, "failed");
+  assert.equal(fileStatus(launch.dir), "failed");
+  assert.match(fake.messages[0], /passed its limit of .* and was killed/);
+});
+
+test("stopping an unknown run changes nothing", () => {
+  const fake = fakeHost("{}");
+
+  const message = createDispatcher(fake.host).stop("deadbeef");
+
+  assert.match(message, /No subagent run "deadbeef"/);
+  assert.equal(fake.results.length, 0);
+});
+
+test("stopping a finished run changes nothing", async () => {
+  const fake = fakeHost("{}");
+  const dispatcher = createDispatcher(fake.host);
+
+  const launch = dispatcher.dispatch("explorer", "Find the entry point");
+  while (fake.results.length === 0) await setTimeout(20);
+
+  assert.equal(
+    dispatcher.stop(launch.id),
+    `Subagent run ${launch.id} already completed. Nothing changed.`,
+  );
+  assert.equal(fake.results.length, 1, "the finished run was reported twice");
+  assert.equal(fileStatus(launch.dir), "completed");
+});
+
+test("a queued run is stopped before it starts a child", async () => {
+  const fake = hangingHost('{"maxConcurrency": 1}');
+  const dispatcher = createDispatcher(fake.host);
+
+  const first = dispatcher.dispatch("explorer", "Find the entry point");
+  const second = dispatcher.dispatch("explorer", "Find the tests");
+
+  assert.equal(dispatcher.stop(second.id), `Stopped queued subagent run ${second.id}.`);
+  while (fake.results.length === 0) await setTimeout(20);
+
+  assert.equal(fake.results[0].id, second.id);
+  assert.equal(fake.results[0].status, "stopped");
+
+  // The first child still hangs, and it holds the only slot. Stopping it frees
+  // the slot, and the stopped run must not start a child now.
+  dispatcher.stop(first.id);
+  while (fake.results.length < 2) await setTimeout(20);
+  assert.equal(fake.results.length, 2);
+});
+
+test("the session shutdown stops the running child and the queued run", async () => {
+  const fake = hangingHost('{"maxConcurrency": 1}');
+  const dispatcher = createDispatcher(fake.host);
+
+  const first = dispatcher.dispatch("explorer", "Find the entry point");
+  const second = dispatcher.dispatch("explorer", "Find the tests");
+  dispatcher.stopAll();
+  while (fake.results.length < 2) await setTimeout(20);
+
+  assert.deepEqual(
+    fake.results.map((record) => record.status),
+    ["stopped", "stopped"],
+  );
+  assert.match(fake.messages[0], /end of the pi session/);
+  assert.equal(fileStatus(first.dir), "stopped");
+  assert.equal(fileStatus(second.dir), "stopped");
 });

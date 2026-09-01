@@ -146,13 +146,35 @@ async function callSubagent(runner: ExtensionRunner, task: string): Promise<Tool
   return { runId: started[1], text: answer };
 }
 
-test("pi loads the extension and registers the subagent tool", async () => {
+test("pi loads the extension and registers both subagent tools", async () => {
   const { runner } = await harness();
 
   assert.deepEqual(
     runner.getAllRegisteredTools().map((tool) => tool.definition.name),
-    ["subagent"],
+    ["subagent", "subagent_stop"],
   );
+});
+
+test("the extension registers the stop command", async () => {
+  const { runner } = await harness();
+
+  assert.ok(runner.getCommand("subagent-stop") !== undefined, "no subagent-stop command");
+});
+
+test("the stop tool reports an unknown run id", async () => {
+  const { runner } = await harness();
+  const tool = runner.getToolDefinition("subagent_stop");
+  assert.ok(tool !== undefined, "the extension registers no subagent_stop tool");
+
+  const result = await tool.execute(
+    "call-1",
+    { runId: "deadbeef" },
+    undefined,
+    () => {},
+    runner.createContext(),
+  );
+
+  assert.match(text(result.content), /No subagent run "deadbeef"/);
 });
 
 test("the tool takes an agent name and a task text", async () => {

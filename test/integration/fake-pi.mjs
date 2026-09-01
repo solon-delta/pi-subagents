@@ -28,6 +28,11 @@ const events = [
 ];
 for (const event of events) process.stdout.write(`${JSON.stringify(event)}\n`);
 
+// The child that never finishes. It has printed its events, so the stop test
+// and the timeout test both find a transcript on disk. The wait is a timer,
+// because node exits at once when nothing holds the event loop.
+if (process.env.FAKE_PI_HANG !== undefined) await setTimeout(600_000);
+
 if (log !== undefined) appendFileSync(log, "end\n");
 
 const code = Number(process.env.FAKE_PI_EXIT ?? "0");

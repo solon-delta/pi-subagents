@@ -76,4 +76,34 @@ export default function (pi: ExtensionAPI) {
       };
     },
   });
+
+  pi.registerTool({
+    name: "subagent_stop",
+    label: "Stop subagent",
+    description: "Stop a running subagent by its run id. The child process is killed.",
+    parameters: Type.Object({
+      runId: Type.String({ description: "The run id that the subagent tool returned" }),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      return {
+        content: [{ type: "text", text: sessionDispatcher(ctx).stop(params.runId) }],
+        details: { runId: params.runId },
+      };
+    },
+  });
+
+  pi.registerCommand("subagent-stop", {
+    description: "Stop a running subagent by its run id",
+    handler: async (args, ctx) => {
+      const runId = args.trim();
+      const text =
+        runId === ""
+          ? "Give a run id. Example /subagent-stop a1b2c3d4."
+          : sessionDispatcher(ctx).stop(runId);
+      ctx.ui.notify(text, "info");
+    },
+  });
+
+  // No child may outlive the session that made it.
+  pi.on("session_shutdown", () => dispatcher?.stopAll());
 }
