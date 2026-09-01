@@ -4,12 +4,13 @@ import { fileURLToPath } from "node:url";
 import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 
 import { type AgentDefinition, parseAgentFile } from "./agent-file.ts";
+import type { Settings } from "./settings.ts";
 
 /**
  * The roots, in shadowing order: project, user, the configured extra roots,
  * bundled.
  */
-export function agentRoots(cwd: string, home: string, extra: string[] = []): string[] {
+function agentRoots(cwd: string, home: string, extra: string[]): string[] {
   return [
     join(cwd, CONFIG_DIR_NAME, "agents"),
     join(home, CONFIG_DIR_NAME, "agent", "agents"),
@@ -52,14 +53,22 @@ export function discoverAgents(roots: string[]): Map<string, AgentDefinition | E
   return agents;
 }
 
-/** Read one agent by name from the roots. Each agent file is read once. */
-export function loadAgent(name: string, roots: string[]): AgentDefinition {
-  const agents = discoverAgents(roots);
+/**
+ * Read one agent by name. The settings give the extra roots and the model of an
+ * agent file that names none. Each agent file is read once.
+ */
+export function loadAgent(
+  name: string,
+  settings: Settings,
+  cwd: string,
+  home: string,
+): AgentDefinition {
+  const agents = discoverAgents(agentRoots(cwd, home, settings.agentDirs));
   const found = agents.get(name);
   if (found === undefined) {
     const available = [...agents.keys()].sort().join(", ");
     throw new Error(`Unknown agent "${name}". Available agents: ${available}`);
   }
   if (found instanceof Error) throw found;
-  return found;
+  return { ...found, model: found.model ?? settings.defaultModel };
 }

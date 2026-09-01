@@ -8,10 +8,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
-import { agentRoots, loadAgent } from "./src/agents.ts";
-import { createRunQueue, type RunQueue } from "./src/queue.ts";
-import { prepareRun, startRun } from "./src/run.ts";
-import { loadSettings, type Settings, settingsFiles, withDefaultModel } from "./src/settings.ts";
+import { createDispatcher, type Dispatcher } from "./src/dispatch.ts";
 
 const DESCRIPTION = [
   "Delegate a task to a named subagent that runs in its own pi process.",
@@ -21,25 +18,45 @@ const DESCRIPTION = [
 
 export default function (pi: ExtensionAPI) {
   /**
-   * The settings of the session. The first tool call reads them, because the
-   * project trust decision is settled by then. A changed file needs a new
-   * session.
+   * The dispatcher of the session. The first tool call builds it, because the
+   * project trust decision is settled by then, and it keeps the queue of the
+   * session, which drains after the parent turn ends.
    */
-  let settings: Settings | undefined;
-  const sessionSettings = (ctx: ExtensionContext): Settings => {
-    if (settings === undefined) {
-      const loaded = loadSettings(settingsFiles(getAgentDir(), ctx.cwd, ctx.isProjectTrusted()));
-      settings = loaded.settings;
-      if (loaded.warning !== undefined) ctx.ui.notify(loaded.warning, "warning");
-    }
-    return settings;
-  };
-
-  /** The queue of the session. It keeps draining after the parent turn ends. */
-  let queue: RunQueue | undefined;
-  const sessionQueue = (ctx: ExtensionContext): RunQueue => {
-    queue ??= createRunQueue(sessionSettings(ctx).maxConcurrency);
-    return queue;
+  let dispatcher: Dispatcher | undefined;
+  /**
+   * The context of the tool call that runs now. pi gives a fresh one to every
+   * call, so the host below reads this variable instead of holding the first
+   * context of the session.
+   */
+  let current: ExtensionContext;
+  const sessionDispatcher = (ctx: ExtensionContext): Dispatcher => {
+    current = ctx;
+    dispatcher ??= createDispatcher({
+      cwd: () => current.cwd,
+      home: homedir(),
+      agentDir: getAgentDir(),
+      projectTrusted: ctx.isProjectTrusted(),
+      runsDir: () =>
+        join(
+          current.sessionManager.getSessionDir(),
+          "subagents",
+          current.sessionManager.getSessionId(),
+        ),
+      env: process.env,
+      notify: (message, level) => current.ui.notify(message, level),
+      sendResult: (message, record) => {
+        pi.sendMessage(
+          {
+            customType: "subagent_result",
+            content: message,
+            display: true,
+            details: record,
+          },
+          { triggerTurn: true, deliverAs: "steer" },
+        );
+      },
+    });
+    return dispatcher;
   };
 
   pi.registerTool({
@@ -51,54 +68,11 @@ export default function (pi: ExtensionAPI) {
       task: Type.String({ description: "The complete task text for the subagent" }),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const current = sessionSettings(ctx);
-      const agent = withDefaultModel(
-        loadAgent(params.agent, agentRoots(ctx.cwd, homedir(), current.agentDirs)),
-        current.defaultModel,
-      );
-      const runsDir = join(
-        ctx.sessionManager.getSessionDir(),
-        "subagents",
-        ctx.sessionManager.getSessionId(),
-      );
-
-      const run = prepareRun({
-        agent,
-        task: params.task,
-        cwd: ctx.cwd,
-        runsDir,
-        env: process.env,
-      });
-
-      sessionQueue(ctx).add(run.id, () =>
-        startRun(run).then(
-          (outcome) => {
-            pi.sendMessage(
-              {
-                customType: "subagent_result",
-                content: outcome.message,
-                display: true,
-                details: outcome.record,
-              },
-              { triggerTurn: true, deliverAs: "steer" },
-            );
-          },
-          (error: Error) => {
-            ctx.ui.notify(`Subagent run ${run.id} was lost: ${error.message}`, "error");
-          },
-        ),
-      );
-
-      // The record is the one source: the queue leaves it at "queued" when
-      // every slot is taken, and startRun sets "running".
-      const head =
-        run.record.status === "queued"
-          ? `Queued subagent "${agent.name}" as run ${run.id}. It starts when a slot is free.`
-          : `Started subagent "${agent.name}" as run ${run.id}.`;
+      const launch = sessionDispatcher(ctx).dispatch(params.agent, params.task);
 
       return {
-        content: [{ type: "text", text: `${head} Do not poll for the result.` }],
-        details: { runId: run.id, dir: run.dir, status: run.record.status },
+        content: [{ type: "text", text: launch.text }],
+        details: { runId: launch.id, dir: launch.dir, status: launch.status },
       };
     },
   });

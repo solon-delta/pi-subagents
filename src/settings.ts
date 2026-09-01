@@ -5,8 +5,6 @@ import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 import { type Static, Type } from "typebox";
 import { Value } from "typebox/value";
 
-import type { AgentDefinition } from "./agent-file.ts";
-
 export interface Settings {
   /** How deep a chain of subagents may go. */
   maxDepth: number;
@@ -121,12 +119,4 @@ export function loadSettings(files: string[]): LoadedSettings {
     },
     warning: warnings.length === 0 ? undefined : warnings.join(" "),
   };
-}
-
-/** The agent with the configured model, when its own file names none. */
-export function withDefaultModel(
-  agent: AgentDefinition,
-  defaultModel: string | undefined,
-): AgentDefinition {
-  return { ...agent, model: agent.model ?? defaultModel };
 }
