@@ -52,7 +52,7 @@ test("no more children run together than the limit allows", async () => {
     });
     finished.push(
       new Promise<void>((done) => {
-        queue.add(run.id, () => startRun(run).then(() => done()));
+        queue.add(() => startRun(run).then(() => done()));
       }),
     );
 

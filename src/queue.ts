@@ -1,12 +1,12 @@
 export interface RunQueue {
-  /** Take one run. It starts at once when a slot is free, and waits otherwise. */
-  add(id: string, start: () => Promise<void>): void;
-  /** Drop a run that waits. Returns false when the run is not in the queue. */
-  stop(id: string): boolean;
+  /**
+   * Take one run. It starts at once when a slot is free, and waits otherwise.
+   * Returns true when the run started at once.
+   */
+  add(start: () => Promise<void>): boolean;
 }
 
 interface Waiting {
-  id: string;
   start: () => Promise<void>;
 }
 
@@ -32,15 +32,12 @@ export function createRunQueue(limit: number): RunQueue {
   };
 
   return {
-    add(id, start) {
-      waiting.push({ id, start });
+    add(start) {
+      const item: Waiting = { start };
+      waiting.push(item);
       pump();
-    },
-    stop(id) {
-      const index = waiting.findIndex((item) => item.id === id);
-      if (index === -1) return false;
-      waiting.splice(index, 1);
-      return true;
+      // pump takes the run out of the list when it starts it.
+      return !waiting.includes(item);
     },
   };
 }

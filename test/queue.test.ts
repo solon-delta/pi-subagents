@@ -30,18 +30,26 @@ test("a run below the limit starts at once", () => {
   const queue = createRunQueue(2);
   const first = gate();
 
-  queue.add("a", first.start);
+  queue.add(first.start);
 
   assert.equal(first.started, true);
+});
+
+test("add reports whether the run started at once", () => {
+  const queue = createRunQueue(1);
+  const [first, second] = [gate(), gate()];
+
+  assert.equal(queue.add(first.start), true);
+  assert.equal(queue.add(second.start), false);
 });
 
 test("a run above the limit waits for a free slot", async () => {
   const queue = createRunQueue(2);
   const [first, second, third] = [gate(), gate(), gate()];
 
-  queue.add("a", first.start);
-  queue.add("b", second.start);
-  queue.add("c", third.start);
+  queue.add(first.start);
+  queue.add(second.start);
+  queue.add(third.start);
   assert.equal(third.started, false);
 
   first.finish();
@@ -56,7 +64,7 @@ test("queued runs start in the order they arrive", async () => {
   const gates = new Map(["a", "b", "c", "d"].map((id) => [id, gate()]));
 
   for (const [id, item] of gates) {
-    queue.add(id, async () => {
+    queue.add(async () => {
       order.push(id);
       await item.start();
     });
@@ -70,33 +78,14 @@ test("queued runs start in the order they arrive", async () => {
   assert.deepEqual(order, ["a", "b", "c", "d"]);
 });
 
-test("a stopped run never starts and leaves the queue", async () => {
-  const queue = createRunQueue(1);
-  const [first, second, third] = [gate(), gate(), gate()];
-
-  queue.add("a", first.start);
-  queue.add("b", second.start);
-  queue.add("c", third.start);
-
-  assert.equal(queue.stop("b"), true);
-  assert.equal(queue.stop("b"), false, "a run leaves the queue once");
-  assert.equal(queue.stop("a"), false, "a running run is not in the queue");
-
-  first.finish();
-  await setImmediate();
-
-  assert.equal(second.started, false);
-  assert.equal(third.started, true);
-});
-
 test("a start that fails frees its slot", async () => {
   const queue = createRunQueue(1);
   const next = gate();
 
-  queue.add("a", () => {
+  queue.add(() => {
     throw new Error("the child did not start");
   });
-  queue.add("b", next.start);
+  queue.add(next.start);
   await setImmediate();
 
   assert.equal(next.started, true);

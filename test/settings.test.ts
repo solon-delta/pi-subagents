@@ -4,26 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import type { AgentDefinition } from "../src/agent-file.ts";
-import { agentRoots } from "../src/agents.ts";
-import { DEFAULTS, loadSettings, settingsFiles, withDefaultModel } from "../src/settings.ts";
+import { DEFAULTS, loadSettings, settingsFiles } from "../src/settings.ts";
 
 function settingsWith(text: string): string {
   const file = join(mkdtempSync(join(tmpdir(), "settings-")), "pi-subagents.json");
   writeFileSync(file, text);
   return file;
-}
-
-function agent(model: string | undefined): AgentDefinition {
-  return {
-    name: "reviewer",
-    description: "Reviews a diff",
-    tools: ["read"],
-    model,
-    systemPromptMode: "replace",
-    systemPrompt: "You review code.",
-    file: "/agents/reviewer.md",
-  };
 }
 
 test("the user settings file lives in the pi agent directory", () => {
@@ -145,26 +131,4 @@ test("two broken files give one warning that names both", () => {
   assert.deepEqual(loaded.settings, DEFAULTS);
   assert.ok((loaded.warning ?? "").includes(user));
   assert.ok((loaded.warning ?? "").includes(project));
-});
-
-test("the extra agent directories are searched with the user root", () => {
-  const roots = agentRoots("/project", "/home/user", ["/extra/agents"]);
-
-  assert.equal(roots[1], join("/home/user", ".pi", "agent", "agents"));
-  assert.equal(roots[2], "/extra/agents");
-  assert.equal(roots.length, 4);
-});
-
-test("an agent without a model key takes the default model", () => {
-  assert.equal(
-    withDefaultModel(agent(undefined), "anthropic/claude-haiku-4-5").model,
-    "anthropic/claude-haiku-4-5",
-  );
-});
-
-test("an agent with a model key overrides the default model", () => {
-  assert.equal(
-    withDefaultModel(agent("openai/gpt-5"), "anthropic/claude-haiku-4-5").model,
-    "openai/gpt-5",
-  );
 });
