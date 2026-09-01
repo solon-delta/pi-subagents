@@ -23,6 +23,13 @@ test("a mapped name adds the extension file and keeps the name in the list", () 
   assert.deepEqual(args, ["--tools", "read,subagent", "--extension", self]);
 });
 
+test("an agent that does not name subagent gets no way to spawn", () => {
+  const args = toolArguments(["read", "bash"], "worker");
+
+  assert.ok(!args.includes("--extension"), "the spawn tool reached an agent that did not ask");
+  assert.equal(args[1], "read,bash");
+});
+
 test("two mapped names from the same file add the extension file once", () => {
   const args = toolArguments(["subagent", "subagent_stop"], "planner");
 

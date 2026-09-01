@@ -28,6 +28,29 @@ You review code.
   assert.equal(agent.file, file);
 });
 
+test("a file without maxDepth inherits the limit", () => {
+  const agent = parseAgentFile(file, "---\ntools: [read]\n---\nBody.\n");
+
+  assert.equal(agent.maxDepth, undefined);
+});
+
+test("maxDepth is read as a whole number", () => {
+  const agent = parseAgentFile(file, "---\ntools: [read]\nmaxDepth: 1\n---\nBody.\n");
+
+  assert.equal(agent.maxDepth, 1);
+});
+
+test("a maxDepth that is not a whole number of one or more fails the file", () => {
+  assert.throws(
+    () => parseAgentFile(file, "---\ntools: [read]\nmaxDepth: deep\n---\nBody.\n"),
+    /maxDepth.*\/agents\/reviewer\.md/s,
+  );
+  assert.throws(
+    () => parseAgentFile(file, "---\ntools: [read]\nmaxDepth: 0\n---\nBody.\n"),
+    /maxDepth/,
+  );
+});
+
 test("a block list is read like an inline list", () => {
   const agent = parseAgentFile(
     file,

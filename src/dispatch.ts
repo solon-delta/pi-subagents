@@ -1,4 +1,5 @@
 import { loadAgent } from "./agents.ts";
+import { childNesting, inheritedNesting } from "./nesting.ts";
 import { createRunQueue } from "./queue.ts";
 import { createRun, type Run, type RunRecord } from "./run.ts";
 import { loadSettings, settingsFiles } from "./settings.ts";
@@ -58,6 +59,9 @@ export function createDispatcher(host: Host): Dispatcher {
   const loaded = loadSettings(settingsFiles(host.agentDir, host.cwd(), host.projectTrusted));
   if (loaded.warning !== undefined) host.notify(loaded.warning, "warning");
   const settings = loaded.settings;
+  // The environment of the process never changes, so the nesting of this
+  // process is read once. Every launch measures itself against it.
+  const parent = inheritedNesting(host.env, settings.maxDepth);
 
   // The queue outlives the parent turn, so a queued run still starts later.
   const queue = createRunQueue(settings.maxConcurrency);
@@ -87,8 +91,11 @@ export function createDispatcher(host: Host): Dispatcher {
       // so the launch reads it now and not when the dispatcher was built.
       const cwd = host.cwd();
       const agent = loadAgent(name, settings, cwd, host.home);
+      // The depth refuses a launch here, before the run makes a directory.
+      const nesting = childNesting(parent, agent);
       const run = createRun({
         agent,
+        nesting,
         task,
         cwd,
         runsDir: host.runsDir(),
@@ -114,12 +121,17 @@ export function createDispatcher(host: Host): Dispatcher {
       const head = queued
         ? `Queued subagent "${agent.name}" as run ${run.id}. It starts when a slot is free.`
         : `Started subagent "${agent.name}" as run ${run.id}.`;
+      // The caller must know that its child is weaker than the agent file says.
+      const narrowed =
+        nesting.removed.length === 0
+          ? ""
+          : ` This process may not grant ${nesting.removed.join(", ")}, so the run does not have that.`;
 
       return {
         id: run.id,
         dir: run.dir,
         status: queued ? "queued" : "running",
-        text: `${head} Do not poll for the result.`,
+        text: `${head}${narrowed} Do not poll for the result.`,
       };
     },
 

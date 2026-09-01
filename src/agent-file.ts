@@ -10,6 +10,8 @@ export interface AgentDefinition {
   tools: string[];
   /** Model pattern, or undefined to let the child pick its own default. */
   model: string | undefined;
+  /** Depth limit of the tree below this agent, or undefined to inherit it. */
+  maxDepth: number | undefined;
   systemPromptMode: SystemPromptMode;
   /** The markdown body. */
   systemPrompt: string;
@@ -74,6 +76,17 @@ function singleValue(
   return value;
 }
 
+function depthValue(value: string | undefined, file: string): number | undefined {
+  if (value === undefined) return undefined;
+  const parsed = Number(value);
+  // The settings file takes one or more too. A zero here would refuse every
+  // launch below this agent for ever, which the file cannot say by accident.
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new Error(`Key "maxDepth" must be a whole number of one or more in ${file}`);
+  }
+  return parsed;
+}
+
 function promptMode(value: string | undefined, file: string): SystemPromptMode {
   if (value === undefined || value === "replace") return "replace";
   if (value === "append") return "append";
@@ -95,6 +108,7 @@ export function parseAgentFile(file: string, text: string): AgentDefinition {
     description: singleValue(fields, "description", file) ?? "",
     tools,
     model: singleValue(fields, "model", file),
+    maxDepth: depthValue(singleValue(fields, "maxDepth", file), file),
     systemPromptMode: promptMode(singleValue(fields, "systemPromptMode", file), file),
     systemPrompt: text.slice(match[0].length).trim(),
     file,
