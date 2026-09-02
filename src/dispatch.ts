@@ -29,7 +29,10 @@ export interface Launch {
   id: string;
   /** Directory with the transcript and the metadata record of this run. */
   dir: string;
-  /** "running" when a slot was free, "queued" when every slot was taken. */
+  /**
+   * The status of the run at the moment of the launch: "running" when a slot
+   * was free, "queued" when every slot was taken.
+   */
   status: RunStatus;
   /** The answer of the tool call, for the model that asked for the run. */
   text: string;

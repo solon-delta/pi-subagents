@@ -231,7 +231,7 @@ export function createRun(options: RunOptions): Run {
       return state.live;
     },
     get started() {
-      return record.startedAt !== undefined;
+      return state.started;
     },
     start,
     stop: (why) => end("stopped", why),

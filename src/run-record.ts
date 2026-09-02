@@ -32,6 +32,8 @@ export interface RunRecordFile {
   readonly record: RunRecord;
   /** True while the run can still be stopped: it waits for a slot, or it runs. */
   readonly live: boolean;
+  /** True once the run has started. A run that waits for a slot has not. */
+  readonly started: boolean;
   /** The child was spawned. */
   start(): void;
   /**
@@ -61,6 +63,9 @@ export function createRunRecord(dir: string, facts: RunFacts): RunRecordFile {
   };
   write();
 
+  // The two questions below are not opposites. A killed run that still waits
+  // for its child to close is neither live nor ended: the kill took its status,
+  // and the close brings its end time.
   /** A run with an end time is done. No later event changes it. */
   const ended = (): boolean => record.endedAt !== undefined;
   const live = (): boolean => record.status === "queued" || record.status === "running";
@@ -71,6 +76,9 @@ export function createRunRecord(dir: string, facts: RunFacts): RunRecordFile {
     },
     get live() {
       return live();
+    },
+    get started() {
+      return record.startedAt !== undefined;
     },
 
     start() {

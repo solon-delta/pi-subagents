@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { createRunRecord, type RunFacts } from "../src/run-record.ts";
+import { createRunRecord, type RunFacts, type RunRecord } from "../src/run-record.ts";
 
 const facts: RunFacts = {
   id: "a1b2c3d4",
@@ -21,7 +21,7 @@ function newRecord() {
 }
 
 /** The record as the file holds it, and not as the object holds it. */
-function onDisk(dir: string) {
+function onDisk(dir: string): RunRecord {
   return JSON.parse(readFileSync(join(dir, "run.json"), "utf8"));
 }
 
@@ -47,7 +47,7 @@ test("a start makes the run running and stamps the start time", () => {
   run.start();
 
   assert.equal(onDisk(dir).status, "running");
-  assert.ok(onDisk(dir).startedAt.length > 0);
+  assert.ok(onDisk(dir).startedAt);
   assert.equal(onDisk(dir).endedAt, undefined);
   assert.equal(run.live, true);
 });
@@ -68,7 +68,7 @@ test("a stop of a queued run ends it, because it has no child", () => {
   run.kill("stopped");
 
   assert.equal(onDisk(dir).status, "stopped");
-  assert.ok(onDisk(dir).endedAt.length > 0);
+  assert.ok(onDisk(dir).endedAt);
   assert.equal(onDisk(dir).startedAt, undefined);
   assert.equal(run.live, false);
 });
@@ -94,7 +94,7 @@ test("the close of a killed child stamps the end time and keeps the status", () 
   run.close(true);
 
   assert.equal(onDisk(dir).status, "failed");
-  assert.ok(onDisk(dir).endedAt.length > 0);
+  assert.ok(onDisk(dir).endedAt);
 });
 
 test("a child that closes well completes the run", () => {
@@ -104,7 +104,7 @@ test("a child that closes well completes the run", () => {
   run.close(true);
 
   assert.equal(onDisk(dir).status, "completed");
-  assert.ok(onDisk(dir).endedAt.length > 0);
+  assert.ok(onDisk(dir).endedAt);
   assert.equal(run.live, false);
 });
 
