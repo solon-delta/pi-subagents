@@ -81,9 +81,7 @@ export function createDispatcher(host: Host): Dispatcher {
 
     const queued = !run.started;
     run.stop(why);
-    return queued
-      ? `Stopped queued subagent run ${runId}.`
-      : `Stopped subagent run ${runId}.`;
+    return queued ? `Stopped queued subagent run ${runId}.` : `Stopped subagent run ${runId}.`;
   };
 
   return {
