@@ -6,26 +6,11 @@ import { createInterface } from "node:readline";
 
 import type { AgentDefinition } from "./agent-file.ts";
 import type { ChildNesting } from "./nesting.ts";
+import { createRunRecord, type RunRecord, type RunStatus } from "./run-record.ts";
 import { toolArguments } from "./tools.ts";
 import { assistantText } from "./transcript.ts";
 
-export type RunStatus = "completed" | "failed" | "queued" | "running" | "stopped";
-
-export interface RunRecord {
-  id: string;
-  agent: string;
-  /** The model of the agent file, or null when the agent file names none. */
-  model: string | null;
-  /** Nesting depth of the child. A run of the user session has depth one. */
-  depth: number;
-  /** Tool names of the agent file that the ceiling of the parent removed. */
-  removedTools: string[];
-  /** ISO timestamps. A queued run has no start time and no end time. */
-  queuedAt: string;
-  startedAt: string | undefined;
-  endedAt: string | undefined;
-  status: RunStatus;
-}
+export type { RunRecord, RunStatus } from "./run-record.ts";
 
 /** The message that carries a finished run back into the parent conversation. */
 export function resultMessage(record: RunRecord, text: string): string {
@@ -63,6 +48,10 @@ export interface Run {
   dir: string;
   /** The status of the run right now. */
   readonly status: RunStatus;
+  /** True while the run can still be stopped: it waits for a slot, or it runs. */
+  readonly live: boolean;
+  /** True once the run has spawned a child. A queued run has none. */
+  readonly started: boolean;
   /**
    * Spawn the child. A run that was stopped while it waited for a slot does
    * nothing here, and a second call does nothing.
@@ -111,15 +100,14 @@ function childArguments(agent: AgentDefinition, tools: string[]): string[] {
   return args;
 }
 
-function writeRecord(dir: string, record: RunRecord): void {
-  writeFileSync(join(dir, "run.json"), `${JSON.stringify(record, null, 2)}\n`);
-}
-
 /**
  * Give a run its id, its directory and its record, and hand back the whole
  * lifecycle. The child does not run yet, so the record says "queued" until
  * start spawns it. The command line is built here, because an unknown tool name
  * must fail the launch before the run leaves a directory behind.
+ *
+ * This function drives the child process. The status of the run belongs to
+ * src/run-record.ts, which every event below reports to.
  */
 export function createRun(options: RunOptions): Run {
   const args = childArguments(options.agent, options.nesting.tools);
@@ -127,25 +115,21 @@ export function createRun(options: RunOptions): Run {
   const dir = join(options.runsDir, id);
   mkdirSync(dir, { recursive: true });
 
-  const record: RunRecord = {
+  const state = createRunRecord(dir, {
     id,
     agent: options.agent.name,
     model: options.agent.model ?? null,
     depth: options.nesting.depth,
     removedTools: options.nesting.removed,
-    queuedAt: new Date().toISOString(),
-    startedAt: undefined,
-    endedAt: undefined,
-    status: "queued",
-  };
-  writeRecord(dir, record);
+  });
+  const record = state.record;
   const transcript = join(dir, "transcript.jsonl");
   writeFileSync(transcript, "");
 
   const lines: string[] = [];
   const errors: string[] = [];
-  /** Set by end, and read by finish, which owns the record. */
-  let killed: { status: "failed" | "stopped"; why: string } | undefined;
+  /** The reason of a kill of ours. It replaces the answer of the child. */
+  let killedWhy: string | undefined;
   let child: ReturnType<typeof spawn> | undefined;
   let settled = false;
   let timer: NodeJS.Timeout | undefined;
@@ -159,20 +143,21 @@ export function createRun(options: RunOptions): Run {
       settled = true;
       clearTimeout(timer);
 
-      record.endedAt = new Date().toISOString();
-      record.status = killed?.status ?? (ok ? "completed" : "failed");
-      writeRecord(dir, record);
+      state.close(ok);
       // A killed child says why it ended. Its partial answer is not the answer
       // to the task, so the reason replaces it.
-      const text = killed?.why ?? assistantText(lines);
+      const text = killedWhy ?? assistantText(lines);
       resolve({ record, message: resultMessage(record, text === "" ? failure : text) });
     };
   });
 
   /** End the run for a reason of ours: a stop by the caller, or the timeout. */
   const end = (status: "failed" | "stopped", why: string): void => {
-    if (settled || killed !== undefined) return;
-    killed = { status, why };
+    if (settled || !state.live) return;
+    killedWhy = why;
+    // The record carries the status now, and not only when the child is gone.
+    // A pi session that shuts down does not wait for the child to close.
+    state.kill(status);
 
     if (child === undefined) {
       // The run still waits for a slot. It has no child to kill, so it ends
@@ -181,10 +166,6 @@ export function createRun(options: RunOptions): Run {
       return;
     }
 
-    // The record carries the status now, and not only when the child is gone.
-    // A pi session that shuts down does not wait for the child to close.
-    record.status = status;
-    writeRecord(dir, record);
     // ponytail: SIGKILL, because a stuck child may ignore SIGTERM and a second
     // timer to escalate buys nothing here. The transcript is already on disk.
     // ponytail: one pid, not a process group. The child is not detached, so it
@@ -195,11 +176,9 @@ export function createRun(options: RunOptions): Run {
   };
 
   const start = (): void => {
-    if (settled || killed !== undefined || child !== undefined) return;
+    if (settled || !state.live || child !== undefined) return;
 
-    record.startedAt = new Date().toISOString();
-    record.status = "running";
-    writeRecord(dir, record);
+    state.start();
 
     const spawned = spawn(piExecutable(options.env), args, {
       cwd: options.cwd,
@@ -247,6 +226,12 @@ export function createRun(options: RunOptions): Run {
     dir,
     get status() {
       return record.status;
+    },
+    get live() {
+      return state.live;
+    },
+    get started() {
+      return state.started;
     },
     start,
     stop: (why) => end("stopped", why),
