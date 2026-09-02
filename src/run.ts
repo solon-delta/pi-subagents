@@ -63,6 +63,10 @@ export interface Run {
   dir: string;
   /** The status of the run right now. */
   readonly status: RunStatus;
+  /** True while the run can still be stopped: it waits for a slot, or it runs. */
+  readonly live: boolean;
+  /** True once the run has spawned a child. A queued run has none. */
+  readonly started: boolean;
   /**
    * Spawn the child. A run that was stopped while it waited for a slot does
    * nothing here, and a second call does nothing.
@@ -247,6 +251,12 @@ export function createRun(options: RunOptions): Run {
     dir,
     get status() {
       return record.status;
+    },
+    get live() {
+      return record.status === "queued" || record.status === "running";
+    },
+    get started() {
+      return record.startedAt !== undefined;
     },
     start,
     stop: (why) => end("stopped", why),

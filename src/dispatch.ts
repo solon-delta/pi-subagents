@@ -1,7 +1,7 @@
 import { agentCatalogue } from "./agents.ts";
 import { childNesting, inheritedNesting } from "./nesting.ts";
 import { createRunQueue } from "./queue.ts";
-import { createRun, type Run, type RunRecord } from "./run.ts";
+import { createRun, type Run, type RunRecord, type RunStatus } from "./run.ts";
 import { loadSettings, settingsFiles } from "./settings.ts";
 
 /**
@@ -30,7 +30,7 @@ export interface Launch {
   /** Directory with the transcript and the metadata record of this run. */
   dir: string;
   /** "running" when a slot was free, "queued" when every slot was taken. */
-  status: "queued" | "running";
+  status: RunStatus;
   /** The answer of the tool call, for the model that asked for the run. */
   text: string;
 }
@@ -77,13 +77,11 @@ export function createDispatcher(host: Host): Dispatcher {
     const run = runs.get(runId);
     if (run === undefined) return `No subagent run "${runId}" in this session. Nothing changed.`;
 
-    const before = run.status;
-    if (before !== "queued" && before !== "running") {
-      return `Subagent run ${runId} already ${before}. Nothing changed.`;
-    }
+    if (!run.live) return `Subagent run ${runId} already ${run.status}. Nothing changed.`;
 
+    const queued = !run.started;
     run.stop(why);
-    return before === "queued"
+    return queued
       ? `Stopped queued subagent run ${runId}.`
       : `Stopped subagent run ${runId}.`;
   };
@@ -120,7 +118,7 @@ export function createDispatcher(host: Host): Dispatcher {
       });
 
       // The run says itself whether a slot was free.
-      const queued = run.status === "queued";
+      const queued = !run.started;
       const head = queued
         ? `Queued subagent "${agent.name}" as run ${run.id}. It starts when a slot is free.`
         : `Started subagent "${agent.name}" as run ${run.id}.`;
@@ -133,7 +131,7 @@ export function createDispatcher(host: Host): Dispatcher {
       return {
         id: run.id,
         dir: run.dir,
-        status: queued ? "queued" : "running",
+        status: run.status,
         text: `${head}${narrowed} Do not poll for the result.`,
       };
     },
