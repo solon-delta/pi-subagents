@@ -1,4 +1,4 @@
-import { loadAgent } from "./agents.ts";
+import { agentCatalogue } from "./agents.ts";
 import { childNesting, inheritedNesting } from "./nesting.ts";
 import { createRunQueue } from "./queue.ts";
 import { createRun, type Run, type RunRecord } from "./run.ts";
@@ -59,6 +59,9 @@ export function createDispatcher(host: Host): Dispatcher {
   const loaded = loadSettings(settingsFiles(host.agentDir, host.cwd(), host.projectTrusted));
   if (loaded.warning !== undefined) host.notify(loaded.warning, "warning");
   const settings = loaded.settings;
+  // The agent files are read here, next to the settings, and not on every
+  // launch. A new agent file needs a new session, like a changed setting.
+  const catalogue = agentCatalogue(settings, host.cwd(), host.home);
   // The environment of the process never changes, so the nesting of this
   // process is read once. Every launch measures itself against it.
   const parent = inheritedNesting(host.env, settings.maxDepth);
@@ -90,7 +93,7 @@ export function createDispatcher(host: Host): Dispatcher {
       // The working directory of the session can move between two tool calls,
       // so the launch reads it now and not when the dispatcher was built.
       const cwd = host.cwd();
-      const agent = loadAgent(name, settings, cwd, host.home);
+      const agent = catalogue.get(name);
       // The depth refuses a launch here, before the run makes a directory.
       const nesting = childNesting(parent, agent);
       const run = createRun({

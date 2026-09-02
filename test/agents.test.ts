@@ -6,7 +6,7 @@ import { test } from "node:test";
 
 import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 
-import { discoverAgents, loadAgent } from "../src/agents.ts";
+import { agentCatalogue, discoverAgents } from "../src/agents.ts";
 import { DEFAULTS, type Settings } from "../src/settings.ts";
 
 function writeAgents(dir: string, files: string[]): string {
@@ -46,29 +46,25 @@ test("the project root shadows the user root", () => {
   const project = tree(PROJECT_ROOT, "reviewer");
   const home = tree(USER_ROOT, "reviewer", "scout");
 
-  assert.equal(
-    loadAgent("reviewer", settings(undefined), project, home).file,
-    join(project, PROJECT_ROOT, "reviewer.md"),
-  );
-  assert.equal(
-    loadAgent("scout", settings(undefined), project, home).file,
-    join(home, USER_ROOT, "scout.md"),
-  );
+  const catalogue = agentCatalogue(settings(undefined), project, home);
+
+  assert.equal(catalogue.get("reviewer").file, join(project, PROJECT_ROOT, "reviewer.md"));
+  assert.equal(catalogue.get("scout").file, join(home, USER_ROOT, "scout.md"));
 });
 
 test("the extra agent directories are searched after the user root", () => {
   const home = tree(USER_ROOT, "scout");
   const extra = agentDir("scout", "surveyor");
-  const found = settings(undefined, [extra]);
+  const catalogue = agentCatalogue(settings(undefined, [extra]), NOWHERE, home);
 
-  assert.equal(loadAgent("scout", found, NOWHERE, home).file, join(home, USER_ROOT, "scout.md"));
-  assert.equal(loadAgent("surveyor", found, NOWHERE, home).file, join(extra, "surveyor.md"));
+  assert.equal(catalogue.get("scout").file, join(home, USER_ROOT, "scout.md"));
+  assert.equal(catalogue.get("surveyor").file, join(extra, "surveyor.md"));
 });
 
 test("an agent without a model key takes the default model", () => {
   const home = tree(USER_ROOT, "scout");
 
-  const agent = loadAgent("scout", settings("anthropic/claude-haiku-4-5"), NOWHERE, home);
+  const agent = agentCatalogue(settings("anthropic/claude-haiku-4-5"), NOWHERE, home).get("scout");
 
   assert.equal(agent.model, "anthropic/claude-haiku-4-5");
 });
@@ -80,7 +76,7 @@ test("an agent with a model key keeps it", () => {
     "---\ndescription: d\ntools: [read]\nmodel: openai/gpt-5\n---\nBody.\n",
   );
 
-  const agent = loadAgent("scout", settings("anthropic/claude-haiku-4-5"), NOWHERE, home);
+  const agent = agentCatalogue(settings("anthropic/claude-haiku-4-5"), NOWHERE, home).get("scout");
 
   assert.equal(agent.model, "openai/gpt-5");
 });
@@ -101,9 +97,13 @@ test("a missing root is skipped", () => {
 });
 
 test("an unknown agent name fails with the available names", () => {
-  const found = settings(undefined, [agentDir("reviewer", "scout")]);
+  const catalogue = agentCatalogue(
+    settings(undefined, [agentDir("reviewer", "scout")]),
+    NOWHERE,
+    NOWHERE,
+  );
 
-  assert.throws(() => loadAgent("typo", found, NOWHERE, NOWHERE), /typo.*reviewer, scout/s);
+  assert.throws(() => catalogue.get("typo"), /typo.*reviewer, scout/s);
 });
 
 test("the frontmatter name selects the agent, not the file stem", () => {
@@ -117,7 +117,7 @@ test("the frontmatter name selects the agent, not the file stem", () => {
 
   assert.deepEqual([...agents.keys()], ["strict-reviewer"]);
   assert.equal(
-    loadAgent("strict-reviewer", settings(undefined, [root]), NOWHERE, NOWHERE).name,
+    agentCatalogue(settings(undefined, [root]), NOWHERE, NOWHERE).get("strict-reviewer").name,
     "strict-reviewer",
   );
 });
@@ -131,13 +131,13 @@ test("an unusable file is listed under its stem and fails on launch", () => {
   assert.deepEqual([...agents.keys()], ["broken"]);
   assert.ok(agents.get("broken") instanceof Error);
   assert.throws(
-    () => loadAgent("broken", settings(undefined, [root]), NOWHERE, NOWHERE),
+    () => agentCatalogue(settings(undefined, [root]), NOWHERE, NOWHERE).get("broken"),
     /tools.*broken\.md/s,
   );
 });
 
 test("the bundled root ships a usable agent", () => {
-  const agent = loadAgent("explorer", settings(undefined), NOWHERE, NOWHERE);
+  const agent = agentCatalogue(settings(undefined), NOWHERE, NOWHERE).get("explorer");
 
   assert.equal(agent.name, "explorer");
   assert.ok(agent.tools.includes("read"));
@@ -145,7 +145,7 @@ test("the bundled root ships a usable agent", () => {
 });
 
 test("a known agent name is parsed from its file", () => {
-  const found = settings(undefined, [agentDir("scout")]);
+  const catalogue = agentCatalogue(settings(undefined, [agentDir("scout")]), NOWHERE, NOWHERE);
 
-  assert.equal(loadAgent("scout", found, NOWHERE, NOWHERE).description, "scout");
+  assert.equal(catalogue.get("scout").description, "scout");
 });

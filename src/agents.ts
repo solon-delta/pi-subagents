@@ -53,22 +53,28 @@ export function discoverAgents(roots: string[]): Map<string, AgentDefinition | E
   return agents;
 }
 
+export interface AgentCatalogue {
+  /** The agent of that name. An unknown name and an unusable file throw. */
+  get(name: string): AgentDefinition;
+}
+
 /**
- * Read one agent by name. The settings give the extra roots and the model of an
- * agent file that names none. Each agent file is read once.
+ * Read every root once. The settings give the extra roots and the model of an
+ * agent file that names none. An agent file that you write after this call is
+ * invisible until the next session.
  */
-export function loadAgent(
-  name: string,
-  settings: Settings,
-  cwd: string,
-  home: string,
-): AgentDefinition {
+export function agentCatalogue(settings: Settings, cwd: string, home: string): AgentCatalogue {
   const agents = discoverAgents(agentRoots(cwd, home, settings.agentDirs));
-  const found = agents.get(name);
-  if (found === undefined) {
-    const available = [...agents.keys()].sort().join(", ");
-    throw new Error(`Unknown agent "${name}". Available agents: ${available}`);
-  }
-  if (found instanceof Error) throw found;
-  return { ...found, model: found.model ?? settings.defaultModel };
+
+  return {
+    get(name) {
+      const found = agents.get(name);
+      if (found === undefined) {
+        const available = [...agents.keys()].sort().join(", ");
+        throw new Error(`Unknown agent "${name}". Available agents: ${available}`);
+      }
+      if (found instanceof Error) throw found;
+      return { ...found, model: found.model ?? settings.defaultModel };
+    },
+  };
 }
