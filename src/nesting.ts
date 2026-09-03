@@ -61,7 +61,8 @@ export function inheritedNesting(env: NodeJS.ProcessEnv, configuredLimit: number
  * the run leaves anything on disk. The ceiling of the parent narrows the tool
  * list of the agent file and never widens it, and the result is the ceiling of
  * the child. A removed tool does not fail the launch. An agent that names a
- * skill asks for the read tool on top of its list.
+ * skill asks for the read tool on top of its list, and a ceiling that takes
+ * that read tool away refuses the launch instead.
  */
 export function childNesting(parent: Nesting, agent: AgentDefinition): ChildNesting {
   if (parent.depth >= parent.limit) {
@@ -80,6 +81,17 @@ export function childNesting(parent: Nesting, agent: AgentDefinition): ChildNest
       ? agent.tools
       : [...agent.tools, "read"];
   const tools = ceiling === undefined ? wanted : wanted.filter((tool) => ceiling.includes(tool));
+
+  // The child opens a skill file for itself. A ceiling that took the read tool
+  // away would leave it a block it cannot use, so the launch fails instead of
+  // starting an agent without the instructions it needs.
+  if (agent.skills.length > 0 && !tools.includes("read")) {
+    throw new Error(
+      `Agent "${agent.name}" names skills, but this process may not grant the read tool, ` +
+        "so the child could not open them. The agent was not started.",
+    );
+  }
+
   // The agent file may only lower the limit of the tree below the child.
   const limit = Math.min(parent.limit, agent.maxDepth ?? parent.limit);
   const depth = parent.depth + 1;

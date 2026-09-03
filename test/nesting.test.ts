@@ -87,14 +87,17 @@ test("an agent with a skill that already names read keeps one read", () => {
   assert.deepEqual(child.tools, ["read", "bash"]);
 });
 
-test("a ceiling without read takes the tool of a skill away again", () => {
+test("a ceiling without read refuses an agent that names a skill", () => {
   const reader = { ...agent, tools: ["bash"], skills: ["review"] };
 
-  const child = childNesting({ depth: 1, limit: 3, ceiling: ["bash"] }, reader);
-
-  assert.deepEqual(child.tools, ["bash"]);
-  // The agent file never named read, so the removed list does not report it.
-  assert.deepEqual(child.removed, []);
+  assert.throws(
+    () => childNesting({ depth: 1, limit: 3, ceiling: ["bash"] }, reader),
+    (error: Error) => {
+      assert.match(error.message, /read/);
+      assert.match(error.message, /splitter/);
+      return true;
+    },
+  );
 });
 
 test("a launch at the limit is refused and the message names the depth and the limit", () => {

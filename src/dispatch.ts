@@ -96,17 +96,9 @@ export function createDispatcher(host: Host): Dispatcher {
       // so the launch reads it now and not when the dispatcher was built.
       const cwd = host.cwd();
       const agent = catalogue.get(name);
-      // The depth refuses a launch here, before the run makes a directory.
+      // The depth and the ceiling both refuse a launch here, before the run
+      // makes a directory.
       const nesting = childNesting(parent, agent);
-      // The child opens a skill file for itself. A ceiling that took the read
-      // tool away would leave it a block it cannot use, so the launch fails
-      // instead of starting an agent without the instructions it needs.
-      if (agent.skills.length > 0 && !nesting.tools.includes("read")) {
-        throw new Error(
-          `Agent "${agent.name}" names skills, but this process may not grant the read tool, ` +
-            "so the child could not open them. The agent was not started.",
-        );
-      }
       // A skill name that no root carries fails the launch here too, while
       // nothing is on disk yet.
       const skillsBlock = skills.promptBlock(agent.skills, agent.name);
