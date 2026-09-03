@@ -6,9 +6,21 @@ import {
   type Skill,
 } from "@earendil-works/pi-coding-agent";
 
-/** The roots, in shadowing order: project, then user. */
+/** The cross-client root that every skill-aware agent reads. */
+const SHARED_DIR = join(".agents", "skills");
+
+/**
+ * The four roots, in shadowing order: the two project roots, then the two user
+ * roots. pi itself reads the same four, so a skill that pi finds is a skill
+ * that an agent file may name.
+ */
 function skillRoots(cwd: string, home: string): string[] {
-  return [join(cwd, CONFIG_DIR_NAME, "skills"), join(home, CONFIG_DIR_NAME, "agent", "skills")];
+  return [
+    join(cwd, CONFIG_DIR_NAME, "skills"),
+    join(cwd, SHARED_DIR),
+    join(home, CONFIG_DIR_NAME, "agent", "skills"),
+    join(home, SHARED_DIR),
+  ];
 }
 
 /**

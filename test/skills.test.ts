@@ -22,11 +22,20 @@ function writeSkills(dir: string, names: string[]): string {
 
 const PROJECT_ROOT = join(CONFIG_DIR_NAME, "skills");
 const USER_ROOT = join(CONFIG_DIR_NAME, "agent", "skills");
+const SHARED_ROOT = join(".agents", "skills");
 
 /** A project tree or a home tree that carries its skills at `root`. */
 function tree(root: string, ...names: string[]): string {
   const base = mkdtempSync(join(tmpdir(), "tree-"));
   writeSkills(join(base, root), names);
+  return base;
+}
+
+/** One tree that carries skills at two of its roots. */
+function twoRootTree(first: string, firstNames: string[], second: string, secondNames: string[]) {
+  const base = mkdtempSync(join(tmpdir(), "tree-"));
+  writeSkills(join(base, first), firstNames);
+  writeSkills(join(base, second), secondNames);
   return base;
 }
 
@@ -42,6 +51,37 @@ test("the project root shadows the user root", () => {
   assert.ok(block.includes(join(project, PROJECT_ROOT, "review", "SKILL.md")));
   assert.ok(!block.includes(join(home, USER_ROOT, "review", "SKILL.md")));
   assert.ok(block.includes(join(home, USER_ROOT, "search", "SKILL.md")));
+});
+
+test("the shared roots of the other clients are read too", () => {
+  const project = tree(SHARED_ROOT, "review");
+  const home = tree(SHARED_ROOT, "search");
+
+  const block = skillCatalogue(project, home).promptBlock(["review", "search"], "reviewer");
+
+  assert.ok(block.includes(join(project, SHARED_ROOT, "review", "SKILL.md")));
+  assert.ok(block.includes(join(home, SHARED_ROOT, "search", "SKILL.md")));
+});
+
+test("a shared project skill shadows both user roots", () => {
+  const project = tree(SHARED_ROOT, "review");
+  const home = twoRootTree(USER_ROOT, ["review"], SHARED_ROOT, ["review"]);
+
+  const block = skillCatalogue(project, home).promptBlock(["review"], "reviewer");
+
+  assert.ok(block.includes(join(project, SHARED_ROOT, "review", "SKILL.md")));
+  assert.ok(!block.includes(join(home, USER_ROOT, "review", "SKILL.md")));
+});
+
+test("the pi root of a tree wins over the shared root of the same tree", () => {
+  const project = twoRootTree(PROJECT_ROOT, ["review"], SHARED_ROOT, ["review"]);
+  const home = twoRootTree(USER_ROOT, ["search"], SHARED_ROOT, ["search"]);
+
+  const block = skillCatalogue(project, home).promptBlock(["review", "search"], "reviewer");
+
+  assert.ok(block.includes(join(project, PROJECT_ROOT, "review", "SKILL.md")));
+  assert.ok(block.includes(join(home, USER_ROOT, "search", "SKILL.md")));
+  assert.ok(!block.includes(SHARED_ROOT));
 });
 
 test("a missing root is skipped", () => {

@@ -69,13 +69,22 @@ A child never sees your skill catalogue. It gets only the skills that its own
 agent file names in the `skills` key, so a small task does not carry your whole
 catalogue.
 
-Skill files are read from two roots, in this order.
+Skill files are read from four roots, in this order.
 
 - `.pi/skills/` in the project
+- `.agents/skills/` in the project
 - `~/.pi/agent/skills/` for the user
+- `~/.agents/skills/` for the user
 
-A skill in an earlier root shadows a skill of the same name in a later root. A
-skill is a directory with a `SKILL.md` file, as pi itself defines it.
+A skill in an earlier root shadows a skill of the same name in a later root, so
+a project skill wins over a user skill. A skill is a directory with a `SKILL.md`
+file, as pi itself defines it. The two `.agents/skills/` roots are the
+cross-client convention, so a skill that another agent installed is a skill an
+agent file may name here. pi reads the same four roots.
+
+Three skill sources of pi are left out: the ancestor directories of the working
+directory, the `skills` directories of packages, and the `skills` key of the pi
+settings.
 
 Every named skill reaches the child in its system prompt, with the name, the
 description and the path of the file. The child opens the file when the task
