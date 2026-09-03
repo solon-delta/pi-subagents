@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 
@@ -8,7 +8,7 @@ import type { AgentDefinition } from "./agent-file.ts";
 import type { ChildNesting } from "./nesting.ts";
 import { createRunRecord, type RunRecord, type RunStatus } from "./run-record.ts";
 import { toolArguments } from "./tools.ts";
-import { assistantText } from "./transcript.ts";
+import { createTranscript } from "./transcript.ts";
 
 export type { RunRecord, RunStatus } from "./run-record.ts";
 
@@ -131,10 +131,8 @@ export function createRun(options: RunOptions): Run {
     removedTools: options.nesting.removed,
   });
   const record = state.record;
-  const transcript = join(dir, "transcript.jsonl");
-  writeFileSync(transcript, "");
+  const transcript = createTranscript(dir);
 
-  const lines: string[] = [];
   const errors: string[] = [];
   /** The reason of a kill of ours. It replaces the answer of the child. */
   // ponytail: the reason stays in this variable and never reaches run.json, so
@@ -156,7 +154,7 @@ export function createRun(options: RunOptions): Run {
       state.close(ok);
       // A killed child says why it ended. Its partial answer is not the answer
       // to the task, so the reason replaces it.
-      const text = killedWhy ?? assistantText(lines);
+      const text = killedWhy ?? transcript.answer();
       resolve({ record, message: resultMessage(record, text === "" ? failure : text) });
     };
   });
@@ -208,10 +206,7 @@ export function createRun(options: RunOptions): Run {
     spawned.stderr.on("data", (chunk: string) => errors.push(chunk));
 
     const reader = createInterface({ input: spawned.stdout });
-    reader.on("line", (line) => {
-      lines.push(line);
-      appendFileSync(transcript, `${line}\n`);
-    });
+    reader.on("line", (line) => transcript.line(line));
 
     // The reader flushes a last line without a newline when stdout ends, which
     // can be after the process itself is gone.
