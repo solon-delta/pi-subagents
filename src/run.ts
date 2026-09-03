@@ -22,6 +22,11 @@ export interface RunOptions {
   agent: AgentDefinition;
   /** Depth, limit and tool ceiling of this child. The tool list comes from here. */
   nesting: ChildNesting;
+  /**
+   * The system prompt block of the resolved skills, or the empty text for an
+   * agent that names none. It goes after the body of the agent file.
+   */
+  skillsBlock: string;
   task: string;
   /** Working directory of the child. */
   cwd: string;
@@ -78,8 +83,11 @@ function piExecutable(env: NodeJS.ProcessEnv): string {
  * The command line of one child run. The task text is not here: pi reads a
  * positional argument that starts with "@" as a file path, and it has no escape
  * for that, so the task goes to the child on stdin.
+ *
+ * The child is started with "--no-skills", so it sees no skill of the host
+ * catalogue. The skills of the agent file reach it in the system prompt.
  */
-function childArguments(agent: AgentDefinition, tools: string[]): string[] {
+function childArguments(agent: AgentDefinition, tools: string[], skillsBlock: string): string[] {
   const args = [
     "--mode",
     "json",
@@ -95,7 +103,7 @@ function childArguments(agent: AgentDefinition, tools: string[]): string[] {
   // An empty body still sends the flag. A replace agent with an empty body asks
   // for an empty system prompt, not for the pi default prompt.
   const flag = agent.systemPromptMode === "append" ? "--append-system-prompt" : "--system-prompt";
-  args.push(flag, agent.systemPrompt);
+  args.push(flag, `${agent.systemPrompt}${skillsBlock}`);
 
   return args;
 }
@@ -110,7 +118,7 @@ function childArguments(agent: AgentDefinition, tools: string[]): string[] {
  * src/run-record.ts, which every event below reports to.
  */
 export function createRun(options: RunOptions): Run {
-  const args = childArguments(options.agent, options.nesting.tools);
+  const args = childArguments(options.agent, options.nesting.tools, options.skillsBlock);
   const id = randomBytes(4).toString("hex");
   const dir = join(options.runsDir, id);
   mkdirSync(dir, { recursive: true });

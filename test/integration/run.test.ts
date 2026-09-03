@@ -13,11 +13,16 @@ import { createRun, type Run, type RunOutcome } from "../../src/run.ts";
 interface AgentLaunch {
   agent: AgentDefinition;
   nesting: ChildNesting;
+  skillsBlock: string;
 }
 
 /** A root launch of one agent: depth one, no ceiling, every tool of the file. */
 function rootLaunch(agent: AgentDefinition): AgentLaunch {
-  return { agent, nesting: childNesting({ depth: 0, limit: 3, ceiling: undefined }, agent) };
+  return {
+    agent,
+    nesting: childNesting({ depth: 0, limit: 3, ceiling: undefined }, agent),
+    skillsBlock: "",
+  };
 }
 
 /** Start a run and wait for its end. */
@@ -32,6 +37,7 @@ const agent: AgentDefinition = {
   name: "reviewer",
   description: "Reviews a diff",
   tools: ["read", "grep"],
+  skills: [],
   model: "anthropic/claude-sonnet-5",
   maxDepth: undefined,
   systemPromptMode: "replace",
@@ -179,6 +185,28 @@ test("a tool name of this extension puts the extension file on the command line"
     "--system-prompt",
     "You review code.",
   ]);
+});
+
+test("the skill block goes to the child after the body of the agent file", async () => {
+  const runsDir = mkdtempSync(join(tmpdir(), "runs-"));
+
+  const run = createRun({
+    ...rootLaunch({ ...agent, model: undefined }),
+    skillsBlock: "\n\n<available_skills>review</available_skills>",
+    task: "Review the diff",
+    cwd: runsDir,
+    runsDir,
+    env: environment(runsDir, "0"),
+    timeoutMs: 0,
+  });
+  await runStarted(run);
+
+  const argv: string[] = JSON.parse(readFileSync(join(runsDir, "argv.json"), "utf8"));
+  assert.ok(argv.includes("--no-skills"));
+  assert.equal(
+    argv[argv.indexOf("--system-prompt") + 1],
+    "You review code.\n\n<available_skills>review</available_skills>",
+  );
 });
 
 test("an unknown tool name fails the launch and writes no run directory", () => {

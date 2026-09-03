@@ -14,6 +14,7 @@ const agent: AgentDefinition = {
   name: "splitter",
   description: "Splits a task",
   tools: ["read", "bash", "subagent"],
+  skills: [],
   model: undefined,
   maxDepth: undefined,
   systemPromptMode: "replace",
@@ -67,6 +68,33 @@ test("an agent cannot widen the ceiling with a tool the parent lacks", () => {
 
   assert.deepEqual(child.tools, ["read"]);
   assert.deepEqual(child.removed, ["write", "bash"]);
+});
+
+test("an agent with a skill gets the read tool that its file does not name", () => {
+  const reader = { ...agent, tools: ["bash"], skills: ["review"] };
+
+  const child = childNesting({ depth: 0, limit: 3, ceiling: undefined }, reader);
+
+  assert.deepEqual(child.tools, ["bash", "read"]);
+  assert.deepEqual(child.removed, []);
+});
+
+test("an agent with a skill that already names read keeps one read", () => {
+  const reader = { ...agent, tools: ["read", "bash"], skills: ["review"] };
+
+  const child = childNesting({ depth: 0, limit: 3, ceiling: undefined }, reader);
+
+  assert.deepEqual(child.tools, ["read", "bash"]);
+});
+
+test("a ceiling without read takes the tool of a skill away again", () => {
+  const reader = { ...agent, tools: ["bash"], skills: ["review"] };
+
+  const child = childNesting({ depth: 1, limit: 3, ceiling: ["bash"] }, reader);
+
+  assert.deepEqual(child.tools, ["bash"]);
+  // The agent file never named read, so the removed list does not report it.
+  assert.deepEqual(child.removed, []);
 });
 
 test("a launch at the limit is refused and the message names the depth and the limit", () => {

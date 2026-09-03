@@ -24,6 +24,7 @@ The body is the system prompt.
 name: explorer
 description: Reads a codebase and answers a question about it.
 tools: [read, grep, find, ls]
+skills: [code-review]
 model: anthropic/claude-sonnet-5
 maxDepth: 2
 systemPromptMode: replace
@@ -32,7 +33,8 @@ systemPromptMode: replace
 You explore a codebase and answer one question about it.
 ```
 
-The `tools` key is required. A file without it fails the launch. The
+The `tools` key is required. A file without it fails the launch. The `skills`
+key is optional, and a file without it names no skill. See Skills. The
 `systemPromptMode` key is `replace` by default; `append` keeps the pi base
 prompt and adds the body. The `maxDepth` key lowers the depth limit of the tree
 below this agent. See Nesting.
@@ -60,6 +62,40 @@ A child gets no ambient extensions, so a mapped name puts its extension file on
 the child command line. Two mapped names from the same file load it once. A name
 that is neither built in nor mapped fails the launch with an error that names
 the tool and the agent, so a typo never gives you a weaker agent in silence.
+
+## Skills
+
+A child never sees your skill catalogue. It gets only the skills that its own
+agent file names in the `skills` key, so a small task does not carry your whole
+catalogue.
+
+Skill files are read from four roots, in this order.
+
+- `.pi/skills/` in the project
+- `.agents/skills/` in the project
+- `~/.pi/agent/skills/` for the user
+- `~/.agents/skills/` for the user
+
+A skill in an earlier root shadows a skill of the same name in a later root, so
+a project skill wins over a user skill. A skill is a directory with a `SKILL.md`
+file, as pi itself defines it. The two `.agents/skills/` roots are the
+cross-client convention, so a skill that another agent installed is a skill an
+agent file may name here. pi reads the same four roots.
+
+Three skill sources of pi are left out: the ancestor directories of the working
+directory, the `skills` directories of packages, and the `skills` key of the pi
+settings.
+
+Every named skill reaches the child in its system prompt, with the name, the
+description and the path of the file. The child opens the file when the task
+matches the description, so a launch with any skill also gets the `read` tool,
+even when the agent file does not name it. The capability ceiling still applies.
+A parent that may not grant `read` cannot grant it here either, so that launch
+is refused rather than started with instructions the child could not open.
+
+A skill name that neither root carries fails the launch with an error that names
+the skill and the agent, so an agent never runs without the instructions it
+needs. Both roots are read once, on the first call of the `subagent` tool.
 
 ## Configuration
 

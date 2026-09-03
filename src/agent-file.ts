@@ -8,6 +8,8 @@ export interface AgentDefinition {
   description: string;
   /** Tool names the child may use. An empty list means no tools. */
   tools: string[];
+  /** Skill names the child may use. An empty list means no skills. */
+  skills: string[];
   /** Model pattern, or undefined to let the child pick its own default. */
   model: string | undefined;
   /** Depth limit of the tree below this agent, or undefined to inherit it. */
@@ -103,10 +105,16 @@ export function parseAgentFile(file: string, text: string): AgentDefinition {
   if (tools === undefined) throw new Error(`Key "tools" is required in ${file}`);
   if (!Array.isArray(tools)) throw new Error(`Key "tools" must be a list in ${file}`);
 
+  // A missing skills key names no skill. A missing tools key is an error, but a
+  // file that says nothing about skills asks for none, which is the safe side.
+  const skills = fields.get("skills") ?? [];
+  if (!Array.isArray(skills)) throw new Error(`Key "skills" must be a list in ${file}`);
+
   return {
     name: singleValue(fields, "name", file) ?? basename(file, ".md"),
     description: singleValue(fields, "description", file) ?? "",
     tools,
+    skills,
     model: singleValue(fields, "model", file),
     maxDepth: depthValue(singleValue(fields, "maxDepth", file), file),
     systemPromptMode: promptMode(singleValue(fields, "systemPromptMode", file), file),
