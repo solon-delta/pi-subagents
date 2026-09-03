@@ -137,18 +137,20 @@ export function createRun(options: RunOptions): Run {
   const lines: string[] = [];
   const errors: string[] = [];
   /** The reason of a kill of ours. It replaces the answer of the child. */
+  // ponytail: the reason stays in this variable and never reaches run.json, so
+  // a timeout and a child that never started both read "failed" on disk. Give
+  // the record a reason field when a reader has to tell them apart later.
   let killedWhy: string | undefined;
   let child: ReturnType<typeof spawn> | undefined;
-  let settled = false;
   let timer: NodeJS.Timeout | undefined;
 
   // A failed spawn emits "error" and then "close", so both handlers run. The
-  // first one owns the outcome and the last write of the record.
+  // record owns the outcome: state.close writes once, and a second call finds
+  // an end time and leaves the record alone. The promise takes the first
+  // message and drops every later one.
   let finish: (ok: boolean, failure: string) => void;
   const done = new Promise<RunOutcome>((resolve) => {
     finish = (ok, failure) => {
-      if (settled) return;
-      settled = true;
       clearTimeout(timer);
 
       state.close(ok);
@@ -161,7 +163,7 @@ export function createRun(options: RunOptions): Run {
 
   /** End the run for a reason of ours: a stop by the caller, or the timeout. */
   const end = (status: "failed" | "stopped", why: string): void => {
-    if (settled || !state.live) return;
+    if (!state.live) return;
     killedWhy = why;
     // The record carries the status now, and not only when the child is gone.
     // A pi session that shuts down does not wait for the child to close.
@@ -184,7 +186,7 @@ export function createRun(options: RunOptions): Run {
   };
 
   const start = (): void => {
-    if (settled || !state.live || child !== undefined) return;
+    if (!state.live || child !== undefined) return;
 
     state.start();
 
