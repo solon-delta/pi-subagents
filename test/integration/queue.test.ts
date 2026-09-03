@@ -22,6 +22,7 @@ const agent: AgentDefinition = {
   name: "explorer",
   description: "Explores a codebase",
   tools: [],
+  skills: [],
   model: undefined,
   maxDepth: undefined,
   systemPromptMode: "replace",
@@ -54,6 +55,7 @@ test("no more children run together than the limit allows", async () => {
     const run = createRun({
       agent,
       nesting: childNesting({ depth: 0, limit: 3, ceiling: undefined }, agent),
+      skillsBlock: "",
       task: `task ${index}`,
       cwd: runsDir,
       runsDir,

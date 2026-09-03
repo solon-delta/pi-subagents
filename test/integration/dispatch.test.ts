@@ -206,6 +206,60 @@ test("a ceiling narrows the launch, records the removal and does not fail", asyn
   assert.equal(record.depth, 2);
 });
 
+/** A project skill of that name, under the project skill root of `cwd`. */
+function writeProjectSkill(cwd: string, name: string): string {
+  const dir = join(cwd, CONFIG_DIR_NAME, "skills", name);
+  mkdirSync(dir, { recursive: true });
+  const file = join(dir, "SKILL.md");
+  writeFileSync(file, `---\nname: ${name}\ndescription: The ${name} skill.\n---\nHow to review.\n`);
+  return file;
+}
+
+/** An agent file of the project, written before the dispatcher reads the roots. */
+function writeProjectAgent(cwd: string, name: string, frontmatter: string): void {
+  const dir = join(cwd, CONFIG_DIR_NAME, "agents");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, `${name}.md`), `---\n${frontmatter}\n---\nYou review code.\n`);
+}
+
+test("the child receives the skill block, the read tool and no host skills", async () => {
+  const argvOut = join(mkdtempSync(join(tmpdir(), "dispatch-argv-")), "argv.json");
+  const fake = fakeHost("{}", { FAKE_PI_ARGV_OUT: argvOut });
+  const skill = writeProjectSkill(fake.cwd, "review");
+  // The agent file names no read tool. The skill forces it into the list.
+  writeProjectAgent(fake.cwd, "reviewer", "tools: [grep]\nskills: [review]");
+
+  createDispatcher(fake.host).dispatch("reviewer", "Review the diff");
+  while (fake.results.length === 0) await setTimeout(20);
+
+  const argv: string[] = JSON.parse(readFileSync(argvOut, "utf8"));
+  assert.ok(argv.includes("--no-skills"));
+  assert.equal(argv[argv.indexOf("--tools") + 1], "grep,read");
+  const prompt = argv[argv.indexOf("--system-prompt") + 1];
+  assert.ok(prompt.startsWith("You review code."));
+  assert.ok(prompt.includes("<name>review</name>"));
+  assert.ok(prompt.includes(`<location>${skill}</location>`));
+});
+
+test("a skill name that no root carries fails the launch and leaves no run", () => {
+  const fake = fakeHost("{}");
+  writeProjectAgent(fake.cwd, "reviewer", "tools: [read]\nskills: [typo]");
+  const dispatcher = createDispatcher(fake.host);
+
+  assert.throws(() => dispatcher.dispatch("reviewer", "Review the diff"), /typo.*reviewer/s);
+  assert.deepEqual(readdirSync(fake.runsDir), []);
+});
+
+test("a launch whose ceiling has no read tool is refused and leaves no run", () => {
+  const fake = fakeHost("{}", { PI_SUBAGENTS_DEPTH: "1", PI_SUBAGENTS_TOOL_CEILING: "grep" });
+  writeProjectSkill(fake.cwd, "review");
+  writeProjectAgent(fake.cwd, "reviewer", "tools: [grep]\nskills: [review]");
+  const dispatcher = createDispatcher(fake.host);
+
+  assert.throws(() => dispatcher.dispatch("reviewer", "Review the diff"), /reviewer.*read/s);
+  assert.deepEqual(readdirSync(fake.runsDir), []);
+});
+
 test("a child that spawns a grandchild passes the depth and the ceiling down", async () => {
   const nestDir = mkdtempSync(join(tmpdir(), "dispatch-nest-"));
   const grandchildEnv = join(nestDir, "grandchild-env.json");
@@ -216,10 +270,8 @@ test("a child that spawns a grandchild passes the depth and the ceiling down", a
   });
 
   // The child works in the project directory, so it finds these agent files.
-  const agents = join(fake.cwd, CONFIG_DIR_NAME, "agents");
-  mkdirSync(agents, { recursive: true });
-  writeFileSync(join(agents, "splitter.md"), "---\ntools: [read, grep, subagent]\n---\nSplit.\n");
-  writeFileSync(join(agents, "gatherer.md"), "---\ntools: [read, bash]\n---\nGather.\n");
+  writeProjectAgent(fake.cwd, "splitter", "tools: [read, grep, subagent]");
+  writeProjectAgent(fake.cwd, "gatherer", "tools: [read, bash]");
 
   createDispatcher(fake.host).dispatch("splitter", "Split the work");
   while (fake.results.length === 0) await setTimeout(20);

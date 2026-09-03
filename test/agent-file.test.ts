@@ -102,6 +102,28 @@ test("a missing tools key fails and names the file", () => {
   );
 });
 
+test("a file without a skills key names no skill", () => {
+  const agent = parseAgentFile(file, "---\ndescription: d\ntools: [read]\n---\nBody.\n");
+
+  assert.deepEqual(agent.skills, []);
+});
+
+test("a skills key is read as a list", () => {
+  const agent = parseAgentFile(
+    file,
+    "---\ndescription: d\ntools: [read]\nskills: [review, search]\n---\nBody.\n",
+  );
+
+  assert.deepEqual(agent.skills, ["review", "search"]);
+});
+
+test("a skills key that is not a list fails and names the file", () => {
+  assert.throws(
+    () => parseAgentFile(file, "---\ndescription: d\ntools: [read]\nskills: review\n---\nB\n"),
+    /skills.*\/agents\/reviewer\.md/s,
+  );
+});
+
 test("a missing frontmatter block fails and names the file", () => {
   assert.throws(() => parseAgentFile(file, "Body only.\n"), /\/agents\/reviewer\.md/);
 });

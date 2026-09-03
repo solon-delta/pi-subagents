@@ -3,6 +3,7 @@ import { childNesting, inheritedNesting } from "./nesting.ts";
 import { createRunQueue } from "./queue.ts";
 import { createRun, type Run, type RunRecord, type RunStatus } from "./run.ts";
 import { loadSettings, settingsFiles } from "./settings.ts";
+import { skillCatalogue } from "./skills.ts";
 
 /**
  * What the dispatch module needs from the host. Every fact is a plain value or
@@ -65,6 +66,8 @@ export function createDispatcher(host: Host): Dispatcher {
   // The agent files are read here, next to the settings, and not on every
   // launch. A new agent file needs a new session, like a changed setting.
   const catalogue = agentCatalogue(settings, host.cwd(), host.home);
+  // The skill roots are read here too, for the same reason.
+  const skills = skillCatalogue(host.cwd(), host.home);
   // The environment of the process never changes, so the nesting of this
   // process is read once. Every launch measures itself against it.
   const parent = inheritedNesting(host.env, settings.maxDepth);
@@ -95,9 +98,22 @@ export function createDispatcher(host: Host): Dispatcher {
       const agent = catalogue.get(name);
       // The depth refuses a launch here, before the run makes a directory.
       const nesting = childNesting(parent, agent);
+      // The child opens a skill file for itself. A ceiling that took the read
+      // tool away would leave it a block it cannot use, so the launch fails
+      // instead of starting an agent without the instructions it needs.
+      if (agent.skills.length > 0 && !nesting.tools.includes("read")) {
+        throw new Error(
+          `Agent "${agent.name}" names skills, but this process may not grant the read tool, ` +
+            "so the child could not open them. The agent was not started.",
+        );
+      }
+      // A skill name that no root carries fails the launch here too, while
+      // nothing is on disk yet.
+      const skillsBlock = skills.promptBlock(agent.skills, agent.name);
       const run = createRun({
         agent,
         nesting,
+        skillsBlock,
         task,
         cwd,
         runsDir: host.runsDir(),
