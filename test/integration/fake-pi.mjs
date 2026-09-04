@@ -54,6 +54,7 @@ if (nest !== undefined) {
     env: process.env,
     notify: () => {},
     sendResult: () => finished(),
+    showStatus: () => {},
   }).dispatch(process.env.FAKE_PI_NEST_AGENT, "the grandchild task");
   await ended;
 }

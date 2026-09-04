@@ -32,6 +32,8 @@ interface Fake {
   results: RunRecord[];
   /** The result text of each finished run, in the same order as `results`. */
   messages: string[];
+  /** Every status line the host was given, in arrival order. */
+  statusLines: (string | undefined)[];
   /** The current runs directory. A test moves it to model a later tool call. */
   runsDir: string;
   cwd: string;
@@ -49,6 +51,7 @@ function fakeHost(userSettings: string, extraEnv: NodeJS.ProcessEnv = {}): Fake 
   const notices: Notice[] = [];
   const results: RunRecord[] = [];
   const messages: string[] = [];
+  const statusLines: (string | undefined)[] = [];
   let runsDir = mkdtempSync(join(tmpdir(), "dispatch-runs-"));
   let cwd = mkdtempSync(join(tmpdir(), "dispatch-cwd-"));
 
@@ -64,6 +67,7 @@ function fakeHost(userSettings: string, extraEnv: NodeJS.ProcessEnv = {}): Fake 
       results.push(record);
       messages.push(message);
     },
+    showStatus: (line) => statusLines.push(line),
   };
 
   return {
@@ -71,6 +75,7 @@ function fakeHost(userSettings: string, extraEnv: NodeJS.ProcessEnv = {}): Fake 
     notices,
     results,
     messages,
+    statusLines,
     get runsDir() {
       return runsDir;
     },
@@ -123,6 +128,19 @@ test("the finished run reaches the host as a result", async () => {
 
   assert.equal(fake.results[0].id, launch.id);
   assert.equal(fake.results[0].status, "completed");
+});
+
+test("the status line follows the run from its start to its end", async () => {
+  const fake = fakeHost("{}");
+
+  createDispatcher(fake.host).dispatch("explorer", "Find the entry point");
+  assert.equal(fake.statusLines.at(-1), "subagents: 1 working, 0 done");
+
+  while (fake.results.length === 0) await setTimeout(20);
+
+  // The end of the run takes the line away, so the last text is undefined.
+  assert.ok(fake.statusLines.length > 1);
+  assert.equal(fake.statusLines.at(-1), undefined);
 });
 
 test("an unusable settings file warns once and the run still starts", () => {

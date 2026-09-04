@@ -4,6 +4,7 @@ import { createRunQueue } from "./queue.ts";
 import { createRun, type Run, type RunRecord, type RunStatus } from "./run.ts";
 import { loadSettings, settingsFiles } from "./settings.ts";
 import { skillCatalogue } from "./skills.ts";
+import { statusLine } from "./status-line.ts";
 
 /**
  * What the dispatch module needs from the host. Every fact is a plain value or
@@ -24,6 +25,8 @@ export interface Host {
   notify(message: string, level: "error" | "warning"): void;
   /** Carry a finished run back into the parent conversation. */
   sendResult(message: string, record: RunRecord): void;
+  /** Show the one status line, or take it away when the text is undefined. */
+  showStatus(line: string | undefined): void;
 }
 
 export interface Launch {
@@ -78,6 +81,11 @@ export function createDispatcher(host: Host): Dispatcher {
   // can tell an unknown run from a run that already ended.
   const runs = new Map<string, Run>();
 
+  /** Tell the host what the runs of the session say now. */
+  const refresh = (): void => {
+    host.showStatus(statusLine([...runs.values()].map((run) => run.status)));
+  };
+
   /** Stop one run for one reason. Both public stops go through this. */
   const stopRun = (runId: string, why: string): string => {
     const run = runs.get(runId);
@@ -87,6 +95,7 @@ export function createDispatcher(host: Host): Dispatcher {
 
     const queued = !run.started;
     run.stop(why);
+    refresh();
     return queued ? `Stopped queued subagent run ${runId}.` : `Stopped subagent run ${runId}.`;
   };
 
@@ -115,7 +124,10 @@ export function createDispatcher(host: Host): Dispatcher {
       runs.set(run.id, run);
 
       void run.done.then(
-        (outcome) => host.sendResult(outcome.message, outcome.record),
+        (outcome) => {
+          refresh();
+          host.sendResult(outcome.message, outcome.record);
+        },
         (error: Error) => host.notify(`Subagent run ${run.id} was lost: ${error.message}`, "error"),
       );
 
@@ -123,11 +135,15 @@ export function createDispatcher(host: Host): Dispatcher {
       // promise is already settled, so the slot opens again at once.
       queue.add(() => {
         run.start();
+        // A run that waited for a slot works now, and the line says so.
+        refresh();
         return run.done.then(() => {});
       });
 
       // The run says itself whether a slot was free.
       const queued = !run.started;
+      // A run that started took its refresh in the callback above.
+      if (queued) refresh();
       const head = queued
         ? `Queued subagent "${agent.name}" as run ${run.id}. It starts when a slot is free.`
         : `Started subagent "${agent.name}" as run ${run.id}.`;
