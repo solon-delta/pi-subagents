@@ -44,6 +44,9 @@ export default function (pi: ExtensionAPI) {
         ),
       env: process.env,
       notify: (message, level) => current.ui.notify(message, level),
+      showStatus: (line) => {
+        current.ui.setWidget("subagents", line === undefined ? undefined : [line]);
+      },
       sendResult: (message, record) => {
         pi.sendMessage(
           {
