@@ -1,10 +1,15 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { createRunRecord, type RunFacts, type RunRecord } from "../src/run-record.ts";
+import {
+  createRunRecord,
+  type RunFacts,
+  type RunRecord,
+  readRunRecords,
+} from "../src/run-record.ts";
 
 const facts: RunFacts = {
   id: "a1b2c3d4",
@@ -139,4 +144,63 @@ test("a second stop of a killed run changes nothing", () => {
   run.kill("failed");
 
   assert.deepEqual(onDisk(dir), killed);
+});
+
+/** A runs directory, and a writer that puts one run.json under it by hand. */
+function newRunsDir() {
+  const runsDir = mkdtempSync(join(tmpdir(), "runs-"));
+  const write = (id: string, text: string | undefined): void => {
+    mkdirSync(join(runsDir, id));
+    if (text !== undefined) writeFileSync(join(runsDir, id, "run.json"), text);
+  };
+  const record = (id: string, queuedAt: string): string =>
+    JSON.stringify({ ...facts, id, queuedAt, status: "completed" });
+  return { runsDir, write, record };
+}
+
+test("readRunRecords reads every run directory, oldest first", () => {
+  const { runsDir, write, record } = newRunsDir();
+  write("bbbb", record("bbbb", "2026-01-02T00:00:00.000Z"));
+  write("aaaa", record("aaaa", "2026-01-01T00:00:00.000Z"));
+
+  const records = readRunRecords(runsDir);
+
+  assert.deepEqual(
+    records.map((found) => found.id),
+    ["aaaa", "bbbb"],
+  );
+  assert.equal(records[0].status, "completed");
+  assert.equal(records[0].startedAt, undefined);
+});
+
+test("a written record reads back through readRunRecords", () => {
+  const runsDir = mkdtempSync(join(tmpdir(), "runs-"));
+  const dir = join(runsDir, facts.id);
+  mkdirSync(dir);
+  createRunRecord(dir, facts).start();
+
+  const records = readRunRecords(runsDir);
+
+  assert.equal(records.length, 1);
+  assert.deepEqual(records[0], onDisk(dir));
+});
+
+test("a directory without a readable record drops out", () => {
+  const { runsDir, write, record } = newRunsDir();
+  write("good", record("good", "2026-01-01T00:00:00.000Z"));
+  write("none", undefined);
+  write("junk", "{ not json");
+  // A file of an earlier version that carries less than the schema asks for.
+  write("thin", JSON.stringify({ id: "thin", agent: "reviewer", status: "completed" }));
+  // A status that this version does not know.
+  write("odd", JSON.stringify({ ...facts, id: "odd", queuedAt: "2026", status: "paused" }));
+
+  assert.deepEqual(
+    readRunRecords(runsDir).map((found) => found.id),
+    ["good"],
+  );
+});
+
+test("a missing runs directory gives no record", () => {
+  assert.deepEqual(readRunRecords(join(tmpdir(), "no-such-runs-directory")), []);
 });

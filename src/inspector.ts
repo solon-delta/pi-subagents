@@ -1,11 +1,7 @@
-import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { Type } from "typebox";
-import { Value } from "typebox/value";
-
 import type { AgentEntry } from "./agents.ts";
-import { type RunStatus, RunStatusSchema } from "./run-record.ts";
+import { readRunRecords, type RunStatus } from "./run-record.ts";
 import { readTranscript } from "./transcript.ts";
 
 /**
@@ -49,21 +45,6 @@ export interface InspectorState {
 }
 
 /**
- * The fields of run.json that the inspector reads. The file carries more, and
- * an older file of an earlier version may carry less, so a run that fails this
- * check drops out of the list instead of breaking it.
- */
-const RunFile = Type.Object({
-  id: Type.String(),
-  agent: Type.String(),
-  model: Type.Union([Type.String(), Type.Null()]),
-  queuedAt: Type.String(),
-  startedAt: Type.Optional(Type.String()),
-  endedAt: Type.Optional(Type.String()),
-  status: RunStatusSchema,
-});
-
-/**
  * How long a run has worked. A run that still works counts up to the moment of
  * the read, so the view shows a snapshot and follows no child on a timer.
  */
@@ -80,34 +61,18 @@ export function elapsedText(
 }
 
 /**
- * Read every run of a runs directory, oldest first. A missing directory gives
- * no run, and a directory without a readable run.json drops out. The read
- * happens once per call: the view reloads on a key and follows no child.
+ * Read every run of a runs directory, oldest first. The record and its order
+ * come from src/run-record.ts, and this function adds what only the screen
+ * needs: the transcript and the elapsed text. The read happens once per call:
+ * the view reloads on a key and follows no child.
  */
 export function readRuns(runsDir: string): InspectorRun[] {
-  let entries;
-  try {
-    entries = readdirSync(runsDir, { withFileTypes: true });
-  } catch {
-    return [];
-  }
-
   const now = Date.now();
-  const runs: InspectorRun[] = [];
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    const dir = join(runsDir, entry.name);
 
-    let record: unknown;
-    try {
-      record = JSON.parse(readFileSync(join(dir, "run.json"), "utf8"));
-    } catch {
-      continue;
-    }
-    if (!Value.Check(RunFile, record)) continue;
-
-    const transcript = readTranscript(dir);
-    runs.push({
+  return readRunRecords(runsDir).map((record) => {
+    // The run directory carries the run id as its name.
+    const transcript = readTranscript(join(runsDir, record.id));
+    return {
       id: record.id,
       agent: record.agent,
       model: record.model,
@@ -116,10 +81,8 @@ export function readRuns(runsDir: string): InspectorRun[] {
       elapsed: elapsedText(record.startedAt, record.endedAt, now),
       task: transcript.task,
       transcript: transcript.rows,
-    });
-  }
-
-  return runs.sort((one, other) => one.queuedAt.localeCompare(other.queuedAt));
+    };
+  });
 }
 
 /** The mark of each status in the run list. The colour carries the same fact. */
