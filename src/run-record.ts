@@ -1,7 +1,21 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-export type RunStatus = "completed" | "failed" | "queued" | "running" | "stopped";
+import { type Static, Type } from "typebox";
+
+/**
+ * The status of a run. The schema is here, next to the writer of the file, so a
+ * reader of run.json checks against the list that this module keeps.
+ */
+export const RunStatusSchema = Type.Union([
+  Type.Literal("completed"),
+  Type.Literal("failed"),
+  Type.Literal("queued"),
+  Type.Literal("running"),
+  Type.Literal("stopped"),
+]);
+
+export type RunStatus = Static<typeof RunStatusSchema>;
 
 /** What a run is, before it has a history. The driver knows these facts. */
 export interface RunFacts {

@@ -1,14 +1,22 @@
-import { appendFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { type Static, Type } from "typebox";
 import { Value } from "typebox/value";
 
+const FILE_NAME = "transcript.jsonl";
+
 const AssistantMessageEnd = Type.Object({
   type: Type.Literal("message_end"),
   message: Type.Object({
     role: Type.Literal("assistant"),
-    content: Type.Array(Type.Object({ type: Type.String(), text: Type.Optional(Type.String()) })),
+    content: Type.Array(
+      Type.Object({
+        type: Type.String(),
+        text: Type.Optional(Type.String()),
+        name: Type.Optional(Type.String()),
+      }),
+    ),
   }),
 });
 
@@ -34,9 +42,44 @@ export interface TranscriptFile {
   answer(): string;
 }
 
+/**
+ * The transcript of a run as a reader sees it. Each assistant message gives its
+ * text, and a tool call gives one line with the tool name, so a run that only
+ * works with tools still shows what it does. Every other line drops out.
+ */
+export function transcriptLines(text: string): string[] {
+  const lines: string[] = [];
+
+  for (const raw of text.split("\n")) {
+    const event = decode(raw);
+    if (event === undefined) continue;
+
+    const before = lines.length;
+    for (const part of event.message.content) {
+      if (part.type === "text") lines.push(...(part.text ?? "").split("\n"));
+      if (part.type === "toolCall") lines.push(`[tool ${part.name ?? "?"}]`);
+    }
+    // One blank row between two messages, so the reader sees where one ends.
+    if (lines.length > before) lines.push("");
+  }
+
+  // The blank row after the last message carries nothing.
+  if (lines.at(-1) === "") lines.pop();
+  return lines;
+}
+
+/** Read the transcript of one run directory. A run with no file yet has no line. */
+export function readTranscript(dir: string): string[] {
+  try {
+    return transcriptLines(readFileSync(join(dir, FILE_NAME), "utf8"));
+  } catch {
+    return [];
+  }
+}
+
 /** Truncate the transcript of a run and hand back the writer. */
 export function createTranscript(dir: string): TranscriptFile {
-  const path = join(dir, "transcript.jsonl");
+  const path = join(dir, FILE_NAME);
   writeFileSync(path, "");
   let text = "";
 

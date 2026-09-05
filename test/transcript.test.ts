@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { createTranscript } from "../src/transcript.ts";
+import { createTranscript, readTranscript, transcriptLines } from "../src/transcript.ts";
 
 function messageEnd(text: string): string {
   return JSON.stringify({
@@ -72,4 +72,43 @@ test("every line reaches the file, including a line that is not JSON", () => {
   transcript.line(messageEnd("answer"));
 
   assert.equal(readFileSync(file, "utf8"), `not json\n${messageEnd("answer")}\n`);
+});
+
+test("the reader gives one row per line of every assistant message", () => {
+  const lines = transcriptLines(`${messageEnd("first\nsecond")}\n${messageEnd("third")}\n`);
+
+  assert.deepEqual(lines, ["first", "second", "", "third"]);
+});
+
+test("the reader names a tool call and drops a thinking part", () => {
+  const line = JSON.stringify({
+    type: "message_end",
+    message: {
+      role: "assistant",
+      content: [
+        { type: "thinking", thinking: "hmm" },
+        { type: "toolCall", id: "1", name: "read", arguments: {} },
+      ],
+    },
+  });
+
+  assert.deepEqual(transcriptLines(line), ["[tool read]"]);
+});
+
+test("a run that printed nothing has no row", () => {
+  assert.deepEqual(transcriptLines(""), []);
+  assert.deepEqual(transcriptLines(`${JSON.stringify({ type: "agent_start" })}\n`), []);
+});
+
+test("readTranscript of a run without a file gives no row", () => {
+  assert.deepEqual(readTranscript(mkdtempSync(join(tmpdir(), "transcript-"))), []);
+});
+
+test("readTranscript reads the file that the writer made", () => {
+  const dir = mkdtempSync(join(tmpdir(), "transcript-"));
+  const transcript = createTranscript(dir);
+
+  transcript.line(messageEnd("the answer"));
+
+  assert.deepEqual(readTranscript(dir), ["the answer"]);
 });

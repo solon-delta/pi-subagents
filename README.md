@@ -183,6 +183,24 @@ the tools the ceiling removed, the queue time, the start time, the end time, and
 the status. The status is `queued`, `running`, `completed`, `failed` or
 `stopped`. Nothing is deleted.
 
+## Inspecting the runs
+
+`/subagents` opens a view with two panes. The left pane lists every run of the
+session with the agent name, the run id, the model and the status. The right
+pane shows the transcript of the selected run.
+
+- `up` and `down`, or `k` and `j`, move the selection and scroll the transcript.
+- `left` and `right`, or `h` and `l`, move focus between the two panes.
+- `r` reads the files again. The view never follows a running child on a timer.
+- `q`, or `escape`, closes the view.
+
+A terminal below 40 columns holds one pane, and the focused pane takes it. A run
+that has printed nothing shows an empty transcript pane.
+
+`/subagent-agents` reads the agent roots and lists every agent it finds, with
+the tools of each one and the root directory that carries the file. An agent file that this
+extension cannot read shows its error in place of the tool list.
+
 ## Development
 
 `make install` installs the dependencies. `make check` runs the type check.
