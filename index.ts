@@ -169,6 +169,8 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  // No child may outlive the session that made it.
+  // Every live run takes its stop here. The pi process exits right after this
+  // handler, so each child gets the SIGTERM and never the SIGKILL that follows
+  // it. A child that ignores SIGTERM outlives the session.
   pi.on("session_shutdown", () => dispatcher?.stopAll());
 }

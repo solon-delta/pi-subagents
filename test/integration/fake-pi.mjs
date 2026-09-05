@@ -59,6 +59,20 @@ if (nest !== undefined) {
   await ended;
 }
 
+// The stop test. The file says "ready" once the handler is up, and it says
+// which signal arrived after that.
+const signalOut = process.env.FAKE_PI_SIGNAL_OUT;
+// The escalation test keeps the same child alive after the signal. Only
+// SIGKILL ends that one.
+if (signalOut !== undefined) {
+  const stubborn = process.env.FAKE_PI_IGNORE_SIGTERM !== undefined;
+  process.on("SIGTERM", () => {
+    writeFileSync(signalOut, "SIGTERM");
+    if (!stubborn) process.exit(143);
+  });
+  writeFileSync(signalOut, "ready");
+}
+
 // The child that never finishes. It has printed its events, so the stop test
 // and the timeout test both find a transcript on disk. The wait is a timer,
 // because node exits at once when nothing holds the event loop.

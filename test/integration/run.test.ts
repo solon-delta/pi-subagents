@@ -275,6 +275,66 @@ test("a missing executable fails the run", async () => {
   assert.deepEqual(outcome.record, delivered);
 });
 
+test("a stopped child gets SIGTERM, so it can clean up below itself", async () => {
+  const runsDir = mkdtempSync(join(tmpdir(), "runs-"));
+  const signalFile = join(runsDir, "signal.txt");
+
+  const run = createRun({
+    ...rootLaunch(agent),
+    task: "task",
+    cwd: runsDir,
+    runsDir,
+    env: {
+      ...environment(runsDir, "0"),
+      FAKE_PI_HANG: "1",
+      FAKE_PI_SIGNAL_OUT: signalFile,
+    },
+    timeoutMs: 0,
+  });
+  run.start();
+
+  // The stop must come after the child has its handler, or the default action
+  // of SIGTERM would end the child and the test would prove nothing.
+  while (!existsSync(signalFile)) await setTimeout(10);
+  run.stop("The run was stopped before it finished.");
+  const outcome = await run.done;
+
+  assert.equal(outcome.record.status, "stopped");
+  assert.equal(readFileSync(signalFile, "utf8"), "SIGTERM");
+});
+
+test("a child that ignores SIGTERM takes SIGKILL after the grace time", async () => {
+  const runsDir = mkdtempSync(join(tmpdir(), "runs-"));
+  const signalFile = join(runsDir, "signal.txt");
+
+  const run = createRun({
+    ...rootLaunch(agent),
+    task: "task",
+    cwd: runsDir,
+    runsDir,
+    env: {
+      ...environment(runsDir, "0"),
+      FAKE_PI_HANG: "1",
+      FAKE_PI_SIGNAL_OUT: signalFile,
+      FAKE_PI_IGNORE_SIGTERM: "1",
+    },
+    // The run has a limit too, so the escalation must replace that timer.
+    timeoutMs: 600_000,
+  });
+  run.start();
+
+  while (!existsSync(signalFile)) await setTimeout(10);
+  const started = Date.now();
+  run.stop("The run was stopped before it finished.");
+  // The child hangs for ten minutes and answers no signal, so only the SIGKILL
+  // of the escalation lets this promise resolve.
+  const outcome = await run.done;
+
+  assert.equal(readFileSync(signalFile, "utf8"), "SIGTERM");
+  assert.ok(Date.now() - started >= 2_500, "the child got its grace time");
+  assert.equal(outcome.record.status, "stopped");
+});
+
 test("a run that is stopped before it starts ends without a child", async () => {
   const runsDir = mkdtempSync(join(tmpdir(), "runs-"));
 
