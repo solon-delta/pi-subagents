@@ -12,6 +12,9 @@ import { createTranscript } from "./transcript.ts";
 
 export type { RunRecord, RunStatus } from "./run-record.ts";
 
+/** How long a stopped child may take to end its own work before SIGKILL. */
+const GRACE_MS = 3_000;
+
 /** The message that carries a finished run back into the parent conversation. */
 export function resultMessage(record: RunRecord, text: string): string {
   const head = `Subagent "${record.agent}" (run ${record.id}) ${record.status}.`;
@@ -63,8 +66,10 @@ export interface Run {
    */
   start(): void;
   /**
-   * End the run. A run that never started ends here, a running run loses its
-   * child. A run that already ended does not change.
+   * End the run. A run that never started ends here. A running run keeps the
+   * status from this call, and its child takes SIGTERM now and SIGKILL a few
+   * seconds later, so the child has time to end its own work first. A run that
+   * already ended does not change.
    */
   stop(why: string): void;
   /** Resolves when the run ends, whether or not a child ever ran. */
@@ -174,13 +179,20 @@ export function createRun(options: RunOptions): Run {
       return;
     }
 
-    // ponytail: SIGKILL, because a stuck child may ignore SIGTERM and a second
-    // timer to escalate buys nothing here. The transcript is already on disk.
-    // ponytail: one pid, not a process group. The child is not detached, so it
-    // shares the process group of pi, and a group kill would kill pi too. A
-    // grandchild of a nested subagent therefore survives. Give the child its
-    // own group with detached, and kill the negative pid, if that shows up.
-    child.kill("SIGKILL");
+    // SIGTERM first. The signal handler of the child kills the bash trees of
+    // its own level and ends its own session, which stops the runs of that
+    // level. SIGKILL runs no handler, so all of that work would survive.
+    const spawned = child;
+    spawned.kill("SIGTERM");
+    // The escalation replaces the timeout timer, which has no work left. A
+    // child that ended before the timer fires takes no signal: node drops a
+    // kill on a child it has reaped, so the signal never reaches a reused pid.
+    // ponytail: one pid, not a process group. The child stays in the group of
+    // pi. A child that ignores SIGTERM therefore dies alone, and its helpers,
+    // its bash trees and the whole subagent tree below it stay alive. Only a
+    // detached child covers that, and this project does not want one.
+    clearTimeout(timer);
+    timer = setTimeout(() => spawned.kill("SIGKILL"), GRACE_MS).unref();
   };
 
   const start = (): void => {
