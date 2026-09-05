@@ -8,13 +8,53 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
+import { agentCatalogue } from "./src/agents.ts";
 import { createDispatcher, type Dispatcher } from "./src/dispatch.ts";
+import { agentsView, inspectorView, type View } from "./src/inspector.ts";
+import { loadSettings, settingsFiles } from "./src/settings.ts";
+
+/**
+ * Show one view until a key closes it. The component is a plain object, so this
+ * extension needs no TUI class of the host. The chat above keeps a few rows, so
+ * the user still sees where the session stands.
+ */
+async function showView(ctx: ExtensionContext, view: View): Promise<void> {
+  // A custom component needs a terminal. Every other mode gets a sentence.
+  if (ctx.mode !== "tui") {
+    ctx.ui.notify("This command needs the terminal interface of pi.", "warning");
+    return;
+  }
+
+  await ctx.ui.custom<void>((tui, theme, _keybindings, done) => {
+    const height = (): number => Math.max(8, tui.terminal.rows - 4);
+    // A key needs the same width that the last draw used, or it would scroll
+    // against a pane split that the screen never showed.
+    let drawn = tui.terminal.columns;
+
+    return {
+      render: (width: number) => {
+        drawn = width;
+        return view.render(theme, width, height());
+      },
+      handleInput: (data: string) => {
+        if (view.key(data, drawn, height())) done();
+        else tui.requestRender();
+      },
+      invalidate: () => {},
+    };
+  });
+}
 
 const DESCRIPTION = [
   "Delegate a task to a named subagent that runs in its own pi process.",
   "The tool returns a run id at once and the child works in the background.",
   "Do not poll for the result. The answer arrives on its own as a new turn.",
 ].join(" ");
+
+/** The directory that holds one subdirectory per run of this session. */
+function runsDir(ctx: ExtensionContext): string {
+  return join(ctx.sessionManager.getSessionDir(), "subagents", ctx.sessionManager.getSessionId());
+}
 
 export default function (pi: ExtensionAPI) {
   /**
@@ -36,12 +76,7 @@ export default function (pi: ExtensionAPI) {
       home: homedir(),
       agentDir: getAgentDir(),
       projectTrusted: ctx.isProjectTrusted(),
-      runsDir: () =>
-        join(
-          current.sessionManager.getSessionDir(),
-          "subagents",
-          current.sessionManager.getSessionId(),
-        ),
+      runsDir: () => runsDir(current),
       env: process.env,
       notify: (message, level) => current.ui.notify(message, level),
       showStatus: (line) => {
@@ -104,6 +139,33 @@ export default function (pi: ExtensionAPI) {
           ? "Give a run id. Example /subagent-stop a1b2c3d4."
           : sessionDispatcher(ctx).stop(runId);
       ctx.ui.notify(text, "info");
+    },
+  });
+
+  pi.registerCommand("subagents", {
+    description: "Inspect the subagent runs of this session and read their transcripts",
+    handler: async (_args, ctx) => {
+      const stop = (runId: string): void => {
+        // A session that launched nothing has no dispatcher and no run either,
+        // so the view finds nothing to stop and this returns.
+        if (dispatcher === undefined) return;
+        // The call points the dispatcher at the context of this command first,
+        // so the status line of the session lands in the right place.
+        ctx.ui.notify(sessionDispatcher(ctx).stop(runId), "info");
+      };
+      await showView(ctx, inspectorView(runsDir(ctx), stop));
+    },
+  });
+
+  pi.registerCommand("subagent-agents", {
+    description: "List the agents of every root, with the tools and the root of each one",
+    handler: async (_args, ctx) => {
+      // The catalogue is read here and not taken from the dispatcher: a command
+      // may come before the first tool call, and the dispatcher would then
+      // freeze the settings while the project trust decision is still open.
+      const loaded = loadSettings(settingsFiles(getAgentDir(), ctx.cwd, ctx.isProjectTrusted()));
+      const catalogue = agentCatalogue(loaded.settings, ctx.cwd, homedir());
+      await showView(ctx, agentsView(catalogue.entries()));
     },
   });
 

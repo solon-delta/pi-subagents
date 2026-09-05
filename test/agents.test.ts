@@ -6,7 +6,7 @@ import { test } from "node:test";
 
 import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 
-import { agentCatalogue, discoverAgents } from "../src/agents.ts";
+import { agentCatalogue, discoverAgentFiles } from "../src/agents.ts";
 import { DEFAULTS, type Settings } from "../src/settings.ts";
 
 function writeAgents(dir: string, files: string[]): string {
@@ -85,13 +85,13 @@ test("a project file shadows a user file of the same name", () => {
   const project = agentDir("reviewer");
   const user = agentDir("reviewer", "scout");
 
-  const agents = discoverAgents([project, user]);
+  const agents = discoverAgentFiles([project, user]);
 
   assert.deepEqual([...agents.keys()].sort(), ["reviewer", "scout"]);
 });
 
 test("a missing root is skipped", () => {
-  const agents = discoverAgents([join(tmpdir(), "no-such-agent-root"), agentDir("scout")]);
+  const agents = discoverAgentFiles([join(tmpdir(), "no-such-agent-root"), agentDir("scout")]);
 
   assert.deepEqual([...agents.keys()], ["scout"]);
 });
@@ -113,7 +113,7 @@ test("the frontmatter name selects the agent, not the file stem", () => {
     "---\nname: strict-reviewer\ndescription: d\ntools: [read]\n---\nBody.\n",
   );
 
-  const agents = discoverAgents([root]);
+  const agents = discoverAgentFiles([root]);
 
   assert.deepEqual([...agents.keys()], ["strict-reviewer"]);
   assert.equal(
@@ -126,10 +126,10 @@ test("an unusable file is listed under its stem and fails on launch", () => {
   const root = mkdtempSync(join(tmpdir(), "agents-"));
   writeFileSync(join(root, "broken.md"), "---\ndescription: d\n---\nNo tools key.\n");
 
-  const agents = discoverAgents([root]);
+  const agents = discoverAgentFiles([root]);
 
   assert.deepEqual([...agents.keys()], ["broken"]);
-  assert.ok(agents.get("broken") instanceof Error);
+  assert.ok(agents.get("broken")?.parsed instanceof Error);
   assert.throws(
     () => agentCatalogue(settings(undefined, [root]), NOWHERE, NOWHERE).get("broken"),
     /tools.*broken\.md/s,
