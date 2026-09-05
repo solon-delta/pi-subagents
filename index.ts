@@ -25,7 +25,7 @@ async function showView(ctx: ExtensionContext, view: View): Promise<void> {
     return;
   }
 
-  await ctx.ui.custom<void>((tui, _theme, _keybindings, done) => {
+  await ctx.ui.custom<void>((tui, theme, _keybindings, done) => {
     const height = (): number => Math.max(8, tui.terminal.rows - 4);
     // A key needs the same width that the last draw used, or it would scroll
     // against a pane split that the screen never showed.
@@ -34,7 +34,7 @@ async function showView(ctx: ExtensionContext, view: View): Promise<void> {
     return {
       render: (width: number) => {
         drawn = width;
-        return view.render(width, height());
+        return view.render(theme, width, height());
       },
       handleInput: (data: string) => {
         if (view.key(data, drawn, height())) done();
@@ -145,7 +145,15 @@ export default function (pi: ExtensionAPI) {
   pi.registerCommand("subagents", {
     description: "Inspect the subagent runs of this session and read their transcripts",
     handler: async (_args, ctx) => {
-      await showView(ctx, inspectorView(runsDir(ctx)));
+      const stop = (runId: string): void => {
+        // A session that launched nothing has no dispatcher and no run either,
+        // so the view finds nothing to stop and this returns.
+        if (dispatcher === undefined) return;
+        // The call points the dispatcher at the context of this command first,
+        // so the status line of the session lands in the right place.
+        ctx.ui.notify(sessionDispatcher(ctx).stop(runId), "info");
+      };
+      await showView(ctx, inspectorView(runsDir(ctx), stop));
     },
   });
 
