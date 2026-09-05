@@ -208,12 +208,20 @@ test("elapsed counts to the end, and to now while the run still works", () => {
   assert.equal(elapsedText(start, undefined, Date.parse(start) + 62_000), "1m02s");
 });
 
-test("readRuns reads every run directory, oldest first", () => {
+test("readRuns gives every record its transcript and its elapsed text", () => {
   const dir = mkdtempSync(join(tmpdir(), "inspector-"));
   const write = (id: string, queuedAt: string, transcript: string | undefined): void => {
     const runDir = join(dir, id);
     mkdirSync(runDir);
-    const record = { id, agent: "explorer", model: null, queuedAt, status: "completed" };
+    const record = {
+      id,
+      agent: "explorer",
+      model: null,
+      depth: 1,
+      removedTools: [],
+      queuedAt,
+      status: "completed",
+    };
     writeFileSync(join(runDir, "run.json"), JSON.stringify(record));
     if (transcript !== undefined) writeFileSync(join(runDir, "transcript.jsonl"), transcript);
   };
