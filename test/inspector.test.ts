@@ -248,6 +248,10 @@ test("readRuns gives every record its transcript and its elapsed text", () => {
   assert.equal(runs[1].task, "the task");
 });
 
+test("a missing runs directory gives no run", () => {
+  assert.deepEqual(readRuns(join(tmpdir(), "no-such-runs-directory")), []);
+});
+
 test("the agent list names the tools and the root of every agent", () => {
   const entries: AgentEntry[] = [
     { name: "explorer", tools: ["read", "bash"], error: undefined, root: "/roots/bundled" },

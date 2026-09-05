@@ -70,7 +70,8 @@ export function readRuns(runsDir: string): InspectorRun[] {
   const now = Date.now();
 
   return readRunRecords(runsDir).map((record) => {
-    // The run directory carries the run id as its name.
+    // The run directory carries the run id as its name. createRun in
+    // src/run.ts builds the two from the same value.
     const transcript = readTranscript(join(runsDir, record.id));
     return {
       id: record.id,

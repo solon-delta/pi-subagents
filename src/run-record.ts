@@ -24,9 +24,13 @@ export type RunStatus = Static<typeof RunStatusSchema>;
  * What `run.json` holds. The schema stands next to the write below, so a field
  * is added in one place, and the reader checks the same list that the writer
  * fills. A file that fails this check drops out of a read instead of breaking
- * it: an older file of an earlier version carries less than this.
+ * it.
+ *
+ * The check asks for every field, so a file that an earlier version wrote
+ * without one of them drops out of the fleet view. That is the price of one
+ * list: a field that a reader may skip belongs in Type.Optional here.
  */
-export const RunRecordSchema = Type.Object({
+const RunRecordSchema = Type.Object({
   id: Type.String(),
   agent: Type.String(),
   /** The model of the agent file, or null when the agent file names none. */
