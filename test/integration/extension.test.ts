@@ -210,6 +210,26 @@ test("the tool takes an agent name and a task text", async () => {
   assert.ok(!Check(schema, { task: "Find the entry point" }), "the agent name is optional");
 });
 
+test("every turn carries the agents of the session in the system prompt", async () => {
+  const { runner, cwd } = await harness();
+  mkdirSync(join(cwd, CONFIG_DIR_NAME, "agents"), { recursive: true });
+  writeFileSync(
+    join(cwd, CONFIG_DIR_NAME, "agents", "reviewer.md"),
+    "---\ndescription: Reviews a diff.\ntools: [read, grep]\n---\n\nYou review code.\n",
+  );
+
+  const result = await runner.emitBeforeAgentStart("Split this task", undefined, "Base prompt.", {
+    cwd,
+  });
+
+  const prompt = result?.systemPrompt;
+  assert.ok(prompt !== undefined, "the turn got no system prompt from the extension");
+  assert.ok(prompt.startsWith("Base prompt."));
+  assert.match(prompt, /<available_agents>/);
+  assert.match(prompt, /<name>reviewer<\/name>/);
+  assert.match(prompt, /<name>explorer<\/name>/);
+});
+
 test("an agent file with an unknown tool name fails the tool call", async () => {
   const { runner, sent, cwd, runsDir } = await harness();
   mkdirSync(join(cwd, CONFIG_DIR_NAME, "agents"), { recursive: true });

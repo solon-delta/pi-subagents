@@ -22,7 +22,7 @@ You explore a codebase and answer one question about it.
 | Key                | Required | Meaning                                                    |
 | ------------------ | -------- | ---------------------------------------------------------- |
 | `name`             | no       | Agent name. The file stem when the key is absent            |
-| `description`      | no       | One sentence about the agent. No view reads it today        |
+| `description`      | no       | One sentence about the agent. The prompt block shows it     |
 | `tools`            | yes      | Tool names the child may call. An empty list gives no tool  |
 | `skills`           | no       | Skill names the child receives. Absent names no skill       |
 | `model`            | no       | Model of the child. See `defaultModel` in the settings      |
@@ -50,12 +50,46 @@ and before the bundled root. See [settings](settings.md).
 
 The `name` key selects the agent, so `explorer.md` without a `name` key is the
 agent `explorer`. A file in an earlier root shadows a file of the same agent
-name in a later root. The roots are read once per session, on the first call of
-the `subagent` tool or on the first `/subagent-agents`.
+name in a later root. The roots are read once per session, on the first turn or
+on the first `/subagent-agents`.
 
 The bundled root carries one agent, `explorer`. It reads a codebase with
 `read`, `grep`, `find` and `ls`, and it answers one question about it. A file of
 the same name in an earlier root replaces it.
+
+## The agent list in the system prompt
+
+Every turn of your session carries a block that names the agents you can start.
+The model reads it and plans a delegation against real names.
+
+```
+The following agents can be started as subagents, each in its own pi process.
+The subagent tool starts one of them by name and gives it the task text.
+
+<available_agents>
+  <agent>
+    <name>explorer</name>
+    <description>Reads a codebase and answers a question about it.</description>
+    <tools>read, grep, find, ls</tools>
+  </agent>
+</available_agents>
+```
+
+The `<name>` and the `<description>` come from the frontmatter. The `<tools>`
+element holds the effective list of the agent: the frontmatter list, plus the
+`read` tool of an agent that names a skill, minus every name that the live tool
+list of your session does not carry. A `<skills>` element holds the frontmatter
+names, and an agent without a skill has no such element.
+
+The block lists only the agents that can start now. An agent whose file fails to
+parse is left out, and so is an agent that this process may not grant. Use
+`/subagent-agents` to see those agents with the error of each one.
+
+A process at its depth limit can start nothing. It gets one sentence about the
+limit instead of the block.
+
+The block goes into the system prompt of the turn alone. Nothing of it is stored
+in your transcript.
 
 ## Tool names
 

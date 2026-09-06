@@ -330,6 +330,67 @@ test("a tool name that no tool of the session carries fails the launch and leave
   assert.deepEqual(readdirSync(fake.runsDir), []);
 });
 
+test("the prompt block names each agent with the tools that this session leaves", () => {
+  const fake = fakeHost("{}", { PI_SUBAGENTS_DEPTH: "1" });
+  writeProjectSkill(fake.cwd, "review");
+  // The agent names no read tool. The skill adds it, and the block shows it.
+  writeProjectAgent(
+    fake.cwd,
+    "reviewer",
+    "description: Reviews a diff.\ntools: [grep, bash]\nskills: [review]",
+  );
+  // This process may not grant bash, so the block leaves that name out.
+  fake.tools = [
+    { name: "read", path: "<builtin:read>" },
+    { name: "grep", path: "<builtin:grep>" },
+    { name: "find", path: "<builtin:find>" },
+    { name: "ls", path: "<builtin:ls>" },
+  ];
+
+  const block = createDispatcher(fake.host).promptBlock();
+
+  assert.match(block, /<available_agents>[\s\S]*<\/available_agents>/);
+  assert.ok(
+    block.includes(
+      [
+        "  <agent>",
+        "    <name>reviewer</name>",
+        "    <description>Reviews a diff.</description>",
+        "    <tools>grep, read</tools>",
+        "    <skills>review</skills>",
+        "  </agent>",
+      ].join("\n"),
+    ),
+    block,
+  );
+  // The bundled agent has no skills, so it carries no skills element.
+  assert.ok(block.includes("    <name>explorer</name>"));
+  assert.ok(block.includes("    <tools>read, grep, find, ls</tools>"));
+  assert.equal(block.match(/<skills>/g)?.length, 1);
+});
+
+test("an unusable agent file and a refused agent stay out of the prompt block", () => {
+  const fake = fakeHost("{}");
+  writeProjectAgent(fake.cwd, "broken", "no colon here");
+  writeProjectAgent(fake.cwd, "searcher", "tools: [read, webserch]");
+
+  const block = createDispatcher(fake.host).promptBlock();
+
+  assert.ok(!block.includes("broken"), block);
+  assert.ok(!block.includes("searcher"), block);
+  assert.ok(block.includes("<name>explorer</name>"));
+});
+
+test("a process at its depth limit gets one sentence and no block", () => {
+  const fake = fakeHost("{}", { PI_SUBAGENTS_DEPTH: "3", PI_SUBAGENTS_MAX_DEPTH: "3" });
+
+  const block = createDispatcher(fake.host).promptBlock();
+
+  assert.match(block, /depth 3/);
+  assert.match(block, /limit of 3/);
+  assert.ok(!block.includes("<available_agents>"), block);
+});
+
 /** The status in the record file of a run, which the child never writes. */
 function fileStatus(dir: string): string {
   return JSON.parse(readFileSync(join(dir, "run.json"), "utf8")).status;
