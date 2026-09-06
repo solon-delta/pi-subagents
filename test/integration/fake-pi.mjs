@@ -13,7 +13,7 @@ await setTimeout(Number(process.env.FAKE_PI_HOLD_MS ?? "0"));
 const argvOut = process.env.FAKE_PI_ARGV_OUT;
 if (argvOut !== undefined) writeFileSync(argvOut, JSON.stringify(process.argv.slice(2)));
 
-// The nesting test reads the depth, the limit and the ceiling from here.
+// The nesting test reads the depth and the limit from here.
 const envOut = process.env.FAKE_PI_ENV_OUT;
 if (envOut !== undefined) writeFileSync(envOut, JSON.stringify(process.env));
 
@@ -31,33 +31,6 @@ const events = [
   { type: "agent_end" },
 ];
 for (const event of events) process.stdout.write(`${JSON.stringify(event)}\n`);
-
-// The second level of the nesting test. This fake child runs the real
-// dispatcher, so its own child is a grandchild of the test. The variable is
-// removed first, or the grandchild would nest again.
-const nest = process.env.FAKE_PI_NEST;
-if (nest !== undefined) {
-  delete process.env.FAKE_PI_NEST;
-  process.env.FAKE_PI_ENV_OUT = process.env.FAKE_PI_NEST_ENV_OUT;
-  const { createDispatcher } = await import("../../src/dispatch.ts");
-
-  let finished;
-  const ended = new Promise((resolve) => {
-    finished = resolve;
-  });
-  createDispatcher({
-    cwd: () => process.cwd(),
-    home: nest,
-    agentDir: nest,
-    projectTrusted: false,
-    runsDir: () => nest,
-    env: process.env,
-    notify: () => {},
-    sendResult: () => finished(),
-    showStatus: () => {},
-  }).dispatch(process.env.FAKE_PI_NEST_AGENT, "the grandchild task");
-  await ended;
-}
 
 // The stop test. The file says "ready" once the handler is up, and it says
 // which signal arrived after that.

@@ -50,19 +50,19 @@ of the main agent ends.
 Each run gets a directory under the session directory:
 `<session dir>/subagents/<session id>/<run id>/`. It holds `transcript.jsonl`
 with every child event and `run.json` with the agent name, the model, the depth,
-the tools the ceiling removed, the queue time, the start time, the end time, and
+the tools the launch removed, the queue time, the start time, the end time, and
 the status. The status is `queued`, `running`, `completed`, `failed` or
 `stopped`. Nothing is deleted.
 
 ## Environment values
 
-| Name                        | Meaning                                    |
-| --------------------------- | ------------------------------------------ |
-| `PI_SUBAGENTS_DEPTH`        | Depth of the current process               |
-| `PI_SUBAGENTS_MAX_DEPTH`    | Depth limit for the tree below the process |
-| `PI_SUBAGENTS_TOOL_CEILING` | Tool names the process may grant           |
-| `PI_SUBAGENTS_PI_BIN`       | The pi executable a child runs             |
+| Name                     | Meaning                                    |
+| ------------------------ | ------------------------------------------ |
+| `PI_SUBAGENTS_DEPTH`     | Depth of the current process               |
+| `PI_SUBAGENTS_MAX_DEPTH` | Depth limit for the tree below the process |
+| `PI_SUBAGENTS_PI_BIN`    | The pi executable a child runs             |
 
-The extension sets the first three for every child. See [agents](agents.md).
+The extension sets the first two for every child. The tools a process may grant
+are its own live tool list, not a variable. See [agents](agents.md).
 `PI_SUBAGENTS_PI_BIN` selects the pi executable, and the integration test uses
 it to run a fake child.

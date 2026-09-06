@@ -1,5 +1,5 @@
 import { agentCatalogue } from "./agents.ts";
-import { childNesting, inheritedNesting } from "./nesting.ts";
+import { childNesting, inheritedNesting, type ToolSource } from "./nesting.ts";
 import { createRunQueue } from "./queue.ts";
 import { createRun, type Run, type RunRecord, type RunStatus } from "./run.ts";
 import { loadSettings, settingsFiles } from "./settings.ts";
@@ -21,6 +21,11 @@ export interface Host {
   projectTrusted: boolean;
   /** Directory that holds one subdirectory per run. It is read on every launch. */
   runsDir(): string;
+  /**
+   * The tools of this pi session, with the file of each one. It is read on
+   * every launch, because an extension may register a tool at any time.
+   */
+  tools(): ToolSource[];
   env: NodeJS.ProcessEnv;
   notify(message: string, level: "error" | "warning"): void;
   /** Carry a finished run back into the parent conversation. */
@@ -105,9 +110,9 @@ export function createDispatcher(host: Host): Dispatcher {
       // so the launch reads it now and not when the dispatcher was built.
       const cwd = host.cwd();
       const agent = catalogue.get(name);
-      // The depth and the ceiling both refuse a launch here, before the run
+      // The depth and the tool list both refuse a launch here, before the run
       // makes a directory.
-      const nesting = childNesting(parent, agent);
+      const nesting = childNesting(parent, agent, host.tools());
       // A skill name that no root carries fails the launch here too, while
       // nothing is on disk yet.
       const skillsBlock = skills.promptBlock(agent.skills, agent.name);

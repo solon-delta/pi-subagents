@@ -16,9 +16,23 @@ import { fileURLToPath } from "node:url";
 import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 
 import { createDispatcher, type Host } from "../../src/dispatch.ts";
+import type { ToolSource } from "../../src/nesting.ts";
 import type { RunRecord } from "../../src/run.ts";
 
 const fakePi = fileURLToPath(new URL("./fake-pi.mjs", import.meta.url));
+/** The extension file of this package, which backs the two subagent tools. */
+const self = fileURLToPath(new URL("../../index.ts", import.meta.url));
+
+/** The live tool list of a session that loaded this extension. */
+const SESSION_TOOLS: ToolSource[] = [
+  { name: "read", path: "<builtin:read>" },
+  { name: "grep", path: "<builtin:grep>" },
+  { name: "find", path: "<builtin:find>" },
+  { name: "ls", path: "<builtin:ls>" },
+  { name: "bash", path: "<builtin:bash>" },
+  { name: "subagent", path: self },
+  { name: "subagent_stop", path: self },
+];
 
 interface Notice {
   message: string;
@@ -37,6 +51,8 @@ interface Fake {
   /** The current runs directory. A test moves it to model a later tool call. */
   runsDir: string;
   cwd: string;
+  /** The live tool list of the fake session. A test narrows it. */
+  tools: ToolSource[];
 }
 
 /**
@@ -54,6 +70,7 @@ function fakeHost(userSettings: string, extraEnv: NodeJS.ProcessEnv = {}): Fake 
   const statusLines: (string | undefined)[] = [];
   let runsDir = mkdtempSync(join(tmpdir(), "dispatch-runs-"));
   let cwd = mkdtempSync(join(tmpdir(), "dispatch-cwd-"));
+  let tools = SESSION_TOOLS;
 
   const host: Host = {
     cwd: () => cwd,
@@ -61,6 +78,7 @@ function fakeHost(userSettings: string, extraEnv: NodeJS.ProcessEnv = {}): Fake 
     agentDir,
     projectTrusted: true,
     runsDir: () => runsDir,
+    tools: () => tools,
     env: { ...process.env, PI_SUBAGENTS_PI_BIN: fakePi, ...extraEnv },
     notify: (message, level) => notices.push({ message, level }),
     sendResult: (message, record) => {
@@ -87,6 +105,12 @@ function fakeHost(userSettings: string, extraEnv: NodeJS.ProcessEnv = {}): Fake 
     },
     set cwd(next: string) {
       cwd = next;
+    },
+    get tools() {
+      return tools;
+    },
+    set tools(next: ToolSource[]) {
+      tools = next;
     },
   };
 }
@@ -194,7 +218,7 @@ test("a launch at the depth limit is refused and no run directory is written", (
   assert.deepEqual(readdirSync(fake.runsDir), []);
 });
 
-test("the child of a run inherits the depth, the limit and the ceiling", async () => {
+test("the child of a run inherits the depth and the limit", async () => {
   const envOut = join(mkdtempSync(join(tmpdir(), "dispatch-env-")), "env.json");
   const fake = fakeHost("{}", {
     PI_SUBAGENTS_DEPTH: "1",
@@ -208,11 +232,14 @@ test("the child of a run inherits the depth, the limit and the ceiling", async (
   const childEnv: Record<string, string> = JSON.parse(readFileSync(envOut, "utf8"));
   assert.equal(childEnv.PI_SUBAGENTS_DEPTH, "2");
   assert.equal(childEnv.PI_SUBAGENTS_MAX_DEPTH, "2");
-  assert.equal(childEnv.PI_SUBAGENTS_TOOL_CEILING, "read,grep,find,ls");
 });
 
-test("a ceiling narrows the launch, records the removal and does not fail", async () => {
-  const fake = fakeHost("{}", { PI_SUBAGENTS_DEPTH: "1", PI_SUBAGENTS_TOOL_CEILING: "read,ls" });
+test("a narrow tool list narrows the launch, records the removal and does not fail", async () => {
+  const fake = fakeHost("{}", { PI_SUBAGENTS_DEPTH: "1" });
+  fake.tools = [
+    { name: "read", path: "<builtin:read>" },
+    { name: "ls", path: "<builtin:ls>" },
+  ];
 
   const launch = createDispatcher(fake.host).dispatch("explorer", "Find the entry point");
   while (fake.results.length === 0) await setTimeout(20);
@@ -268,8 +295,9 @@ test("a skill name that no root carries fails the launch and leaves no run", () 
   assert.deepEqual(readdirSync(fake.runsDir), []);
 });
 
-test("a launch whose ceiling has no read tool is refused and leaves no run", () => {
-  const fake = fakeHost("{}", { PI_SUBAGENTS_DEPTH: "1", PI_SUBAGENTS_TOOL_CEILING: "grep" });
+test("a launch without the read tool is refused and leaves no run", () => {
+  const fake = fakeHost("{}", { PI_SUBAGENTS_DEPTH: "1" });
+  fake.tools = [{ name: "grep", path: "<builtin:grep>" }];
   writeProjectSkill(fake.cwd, "review");
   writeProjectAgent(fake.cwd, "reviewer", "tools: [grep]\nskills: [review]");
   const dispatcher = createDispatcher(fake.host);
@@ -278,27 +306,28 @@ test("a launch whose ceiling has no read tool is refused and leaves no run", () 
   assert.deepEqual(readdirSync(fake.runsDir), []);
 });
 
-test("a child that spawns a grandchild passes the depth and the ceiling down", async () => {
-  const nestDir = mkdtempSync(join(tmpdir(), "dispatch-nest-"));
-  const grandchildEnv = join(nestDir, "grandchild-env.json");
-  const fake = fakeHost("{}", {
-    FAKE_PI_NEST: nestDir,
-    FAKE_PI_NEST_AGENT: "gatherer",
-    FAKE_PI_NEST_ENV_OUT: grandchildEnv,
-  });
+test("a tool of another extension reaches the child with its extension file", async () => {
+  const argvOut = join(mkdtempSync(join(tmpdir(), "dispatch-argv-")), "argv.json");
+  const fake = fakeHost("{}", { FAKE_PI_ARGV_OUT: argvOut });
+  const webFile = join(tmpdir(), "dispatch-web-extension.ts");
+  fake.tools = [...SESSION_TOOLS, { name: "web_search", path: webFile }];
+  writeProjectAgent(fake.cwd, "searcher", "tools: [read, web_search]");
 
-  // The child works in the project directory, so it finds these agent files.
-  writeProjectAgent(fake.cwd, "splitter", "tools: [read, grep, subagent]");
-  writeProjectAgent(fake.cwd, "gatherer", "tools: [read, bash]");
-
-  createDispatcher(fake.host).dispatch("splitter", "Split the work");
+  createDispatcher(fake.host).dispatch("searcher", "Find the release notes");
   while (fake.results.length === 0) await setTimeout(20);
 
-  const env: Record<string, string> = JSON.parse(readFileSync(grandchildEnv, "utf8"));
-  assert.equal(env.PI_SUBAGENTS_DEPTH, "2");
-  assert.equal(env.PI_SUBAGENTS_MAX_DEPTH, "3");
-  // The child may not grant bash, because its own agent file does not name it.
-  assert.equal(env.PI_SUBAGENTS_TOOL_CEILING, "read");
+  const argv: string[] = JSON.parse(readFileSync(argvOut, "utf8"));
+  assert.equal(argv[argv.indexOf("--tools") + 1], "read,web_search");
+  assert.equal(argv[argv.indexOf("--extension") + 1], webFile);
+});
+
+test("a tool name that no tool of the session carries fails the launch and leaves no run", () => {
+  const fake = fakeHost("{}");
+  writeProjectAgent(fake.cwd, "searcher", "tools: [read, webserch]");
+  const dispatcher = createDispatcher(fake.host);
+
+  assert.throws(() => dispatcher.dispatch("searcher", "Find the release notes"), /webserch/);
+  assert.deepEqual(readdirSync(fake.runsDir), []);
 });
 
 /** The status in the record file of a run, which the child never writes. */

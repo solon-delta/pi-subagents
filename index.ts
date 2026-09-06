@@ -77,6 +77,11 @@ export default function (pi: ExtensionAPI) {
       agentDir: getAgentDir(),
       projectTrusted: ctx.isProjectTrusted(),
       runsDir: () => runsDir(current),
+      // The live tool list of this session. pi narrows it for every child it
+      // starts, so it is also the ceiling that the parent of this process
+      // granted. A tool of pi itself carries an angle bracket path here.
+      tools: () =>
+        pi.getAllTools().map((tool) => ({ name: tool.name, path: tool.sourceInfo.path })),
       env: process.env,
       notify: (message, level) => current.ui.notify(message, level),
       showStatus: (line) => {
