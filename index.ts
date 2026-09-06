@@ -58,7 +58,7 @@ function runsDir(ctx: ExtensionContext): string {
 
 export default function (pi: ExtensionAPI) {
   /**
-   * The dispatcher of the session. The first tool call builds it, because the
+   * The dispatcher of the session. The first turn builds it, because the
    * project trust decision is settled by then, and it keeps the queue of the
    * session, which drains after the parent turn ends.
    */
@@ -101,6 +101,14 @@ export default function (pi: ExtensionAPI) {
     });
     return dispatcher;
   };
+
+  // Every turn carries the agent list, so the model plans a delegation against
+  // real names instead of learning them from a failed launch. The block goes
+  // into the system prompt of the turn alone and never into the transcript.
+  pi.on("before_agent_start", (event, ctx) => {
+    const block = sessionDispatcher(ctx).promptBlock();
+    return block === "" ? undefined : { systemPrompt: `${event.systemPrompt}\n\n${block}` };
+  });
 
   pi.registerTool({
     name: "subagent",
