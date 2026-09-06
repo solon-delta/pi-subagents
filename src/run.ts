@@ -7,7 +7,6 @@ import { createInterface } from "node:readline";
 import type { AgentDefinition } from "./agent-file.ts";
 import type { ChildNesting } from "./nesting.ts";
 import { createRunRecord, type RunRecord, type RunStatus } from "./run-record.ts";
-import { toolArguments } from "./tools.ts";
 import { createTranscript } from "./transcript.ts";
 
 export type { RunRecord, RunStatus } from "./run-record.ts";
@@ -23,7 +22,7 @@ export function resultMessage(record: RunRecord, text: string): string {
 
 export interface RunOptions {
   agent: AgentDefinition;
-  /** Depth, limit and tool ceiling of this child. The tool list comes from here. */
+  /** Depth, limit, tools and extension files of this child. */
   nesting: ChildNesting;
   /**
    * The system prompt block of the resolved skills, or the empty text for an
@@ -91,8 +90,15 @@ function piExecutable(env: NodeJS.ProcessEnv): string {
  *
  * The child is started with "--no-skills", so it sees no skill of the host
  * catalogue. The skills of the agent file reach it in the system prompt.
+ *
+ * The child also gets no ambient extension, so every extension file of a
+ * granted tool is named here. A built-in tool needs no file.
  */
-function childArguments(agent: AgentDefinition, tools: string[], skillsBlock: string): string[] {
+function childArguments(
+  agent: AgentDefinition,
+  nesting: ChildNesting,
+  skillsBlock: string,
+): string[] {
   const args = [
     "--mode",
     "json",
@@ -100,8 +106,11 @@ function childArguments(agent: AgentDefinition, tools: string[], skillsBlock: st
     "--no-extensions",
     "--no-skills",
     "--no-context-files",
-    ...toolArguments(tools, agent.name),
   ];
+
+  if (nesting.tools.length === 0) args.push("--no-tools");
+  else args.push("--tools", nesting.tools.join(","));
+  for (const file of nesting.extensions) args.push("--extension", file);
 
   if (agent.model !== undefined) args.push("--model", agent.model);
 
@@ -116,14 +125,13 @@ function childArguments(agent: AgentDefinition, tools: string[], skillsBlock: st
 /**
  * Give a run its id, its directory and its record, and hand back the whole
  * lifecycle. The child does not run yet, so the record says "queued" until
- * start spawns it. The command line is built here, because an unknown tool name
- * must fail the launch before the run leaves a directory behind.
+ * start spawns it.
  *
  * This function drives the child process. The status of the run belongs to
  * src/run-record.ts, which every event below reports to.
  */
 export function createRun(options: RunOptions): Run {
-  const args = childArguments(options.agent, options.nesting.tools, options.skillsBlock);
+  const args = childArguments(options.agent, options.nesting, options.skillsBlock);
   const id = randomBytes(4).toString("hex");
   const dir = join(options.runsDir, id);
   mkdirSync(dir, { recursive: true });

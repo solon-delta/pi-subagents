@@ -7,7 +7,7 @@ conversation as a new turn.
 ## Features
 
 - Agents as markdown files, with a tool list and a skill list per agent.
-- A depth limit and a capability ceiling that bound a tree of subagents.
+- A depth limit, and a tool list that never widens down a tree of subagents.
 - A queue, a concurrency limit and a time limit per run.
 - A transcript and a record on disk for every run.
 - A fleet view and a status line that show the runs of the session.

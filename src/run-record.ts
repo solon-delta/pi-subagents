@@ -37,7 +37,7 @@ const RunRecordSchema = Type.Object({
   model: Type.Union([Type.String(), Type.Null()]),
   /** Nesting depth of the child. A run of the user session has depth one. */
   depth: Type.Number(),
-  /** Tool names of the agent file that the ceiling of the parent removed. */
+  /** Tool names of the agent file that the tool list of the parent removed. */
   removedTools: Type.Array(Type.String()),
   /** ISO timestamps. A queued run has no start time and no end time. */
   queuedAt: Type.String(),

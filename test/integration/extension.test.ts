@@ -22,7 +22,9 @@ import {
   ModelRegistry,
   ModelRuntime,
   SessionManager,
+  type ToolInfo,
 } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 import { Check } from "typebox/value";
 
 const extensionPath = fileURLToPath(new URL("../../index.ts", import.meta.url));
@@ -47,6 +49,27 @@ function text(content: Content): string {
 
 function unbound(): never {
   throw new Error("the extension called an action that this test does not bind");
+}
+
+/**
+ * The live tool list that pi reports to an extension. A built-in tool of pi
+ * carries an angle bracket path, and the two tools of this package carry the
+ * file that pi loaded them from.
+ */
+function liveTools(): ToolInfo[] {
+  const tool = (name: string, path: string, source: string): ToolInfo => ({
+    name,
+    description: name,
+    parameters: Type.Object({}),
+    promptGuidelines: undefined,
+    sourceInfo: { path, source, scope: "user", origin: "top-level" },
+  });
+
+  return [
+    ...["read", "grep", "find", "ls"].map((name) => tool(name, `<builtin:${name}>`, "builtin")),
+    tool("subagent", extensionPath, "extension:index"),
+    tool("subagent_stop", extensionPath, "extension:index"),
+  ];
 }
 
 /**
@@ -86,7 +109,7 @@ async function harness() {
     getSessionName: unbound,
     setLabel: unbound,
     getActiveTools: () => [],
-    getAllTools: () => [],
+    getAllTools: liveTools,
     setActiveTools: unbound,
     refreshTools: unbound,
     getCommands: () => [],

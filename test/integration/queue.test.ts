@@ -54,7 +54,7 @@ test("no more children run together than the limit allows", async () => {
   for (let index = 0; index < 6; index += 1) {
     const run = createRun({
       agent,
-      nesting: childNesting({ depth: 0, limit: 3, ceiling: undefined }, agent),
+      nesting: childNesting({ depth: 0, limit: 3 }, agent, []),
       skillsBlock: "",
       task: `task ${index}`,
       cwd: runsDir,

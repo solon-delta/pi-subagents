@@ -59,17 +59,19 @@ the same name in an earlier root replaces it.
 
 ## Tool names
 
-A `tools` entry is a plain tool name, never a path. Two kinds of name work.
+A `tools` entry is a plain tool name, never a path. Any tool of your session
+works: a pi built-in such as `read` or `bash`, a tool of this package such as
+`subagent`, and a tool of any other extension that your session loaded.
 
-- A pi built-in: `read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`, and
-  `powershell` on Windows.
-- A name that an extension file backs. This package backs `subagent` and
-  `subagent_stop`.
+Every launch reads the live tool list of the session and looks the named tools
+up in it. A built-in tool needs nothing more, because the child is the same pi
+binary. A tool of an extension travels as the file that the list names, because
+a child gets no ambient extensions. Two names from the same file load it once.
 
-A child gets no ambient extensions, so a mapped name puts its extension file on
-the child command line. Two mapped names from the same file load it once. A name
-that is neither built in nor mapped fails the launch with an error that names
-the tool and the agent, so a typo never gives you a weaker agent in silence.
+A name that no tool of your session carries fails the launch with an error that
+names the tool and the agent, so a typo never gives you a weaker agent in
+silence. A tool without a file, such as an SDK tool or an inline tool, fails the
+launch too, because a new process cannot load it.
 
 ## Skills
 
@@ -97,9 +99,9 @@ settings.
 Every named skill reaches the child in its system prompt, with the name, the
 description and the path of the file. The child opens the file when the task
 matches the description, so a launch with any skill also gets the `read` tool,
-even when the agent file does not name it. The capability ceiling still applies.
-A parent that may not grant `read` cannot grant it here either, so that launch
-is refused rather than started with instructions the child could not open.
+even when the agent file does not name it. The tool list of the process still
+applies. A process without `read` cannot grant it here either, so that launch is
+refused rather than started with instructions the child could not open.
 
 A skill name that no root carries fails the launch with an error that names the
 skill and the agent, so an agent never runs without the instructions it needs.
@@ -118,15 +120,20 @@ limit. The limit comes from the environment of the process, then from
 `maxDepth` key lowers the limit for the tree below it. A larger value is
 ignored, so one agent file cannot defeat your setting.
 
-The second guard is the capability ceiling. The ceiling is the set of tool names
-that a process may grant. Your own session has no ceiling, so a first launch
-grants every tool the agent file names. Every launch intersects the agent tool
-list with the ceiling, and the result becomes the ceiling of the new child. An
-agent restricted to reading therefore cannot give its own child a shell,
-whatever the agent file of that child says. A removed tool does not fail the
-launch. The tool answer names the removed tools, and `run.json` records them.
+The second guard is the tool list of the process. A child is started with the
+`--tools` list of its agent file, so pi gives that child exactly those tools and
+nothing else. Its own live tool list is therefore the set of tools it may pass
+on. Every launch intersects the agent tool list with that live list. An agent
+restricted to reading cannot give its own child a shell, whatever the agent file
+of that child says.
 
-Three environment values carry the guards to a child: `PI_SUBAGENTS_DEPTH`,
-`PI_SUBAGENTS_MAX_DEPTH` and `PI_SUBAGENTS_TOOL_CEILING`. A process that clears
-them looks like a root process to the extension, so the guards bound an agent
-that follows the rules. They are not a sandbox around an agent with a shell.
+A missing name means two different things by depth. Your own session sees every
+tool you have, so a name it does not carry is a typo and fails the launch. Below
+that, a missing name is a tool that the parent lost. It is removed from the
+launch instead of failing it: the
+tool answer names the removed tools, and `run.json` records them.
+
+Two environment values carry the depth guard to a child: `PI_SUBAGENTS_DEPTH`
+and `PI_SUBAGENTS_MAX_DEPTH`. A process that clears them looks like a root
+process to the extension, so the guards bound an agent that follows the rules.
+They are not a sandbox around an agent with a shell.

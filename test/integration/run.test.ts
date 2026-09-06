@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, unlinkSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -7,7 +7,7 @@ import { setTimeout } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
 import type { AgentDefinition } from "../../src/agent-file.ts";
-import { type ChildNesting, childNesting } from "../../src/nesting.ts";
+import { type ChildNesting, childNesting, type ToolSource } from "../../src/nesting.ts";
 import { createRun, type Run, type RunOutcome } from "../../src/run.ts";
 
 interface AgentLaunch {
@@ -16,11 +16,22 @@ interface AgentLaunch {
   skillsBlock: string;
 }
 
-/** A root launch of one agent: depth one, no ceiling, every tool of the file. */
+/** The extension file of this package, which backs the two subagent tools. */
+const self = fileURLToPath(new URL("../../index.ts", import.meta.url));
+
+/** The live tool list of a session that loaded this extension. */
+const SESSION_TOOLS: ToolSource[] = [
+  { name: "read", path: "<builtin:read>" },
+  { name: "grep", path: "<builtin:grep>" },
+  { name: "subagent", path: self },
+  { name: "subagent_stop", path: self },
+];
+
+/** A root launch of one agent: depth one, every tool of the file. */
 function rootLaunch(agent: AgentDefinition): AgentLaunch {
   return {
     agent,
-    nesting: childNesting({ depth: 0, limit: 3, ceiling: undefined }, agent),
+    nesting: childNesting({ depth: 0, limit: 3 }, agent, SESSION_TOOLS),
     skillsBlock: "",
   };
 }
@@ -158,7 +169,6 @@ test("an append agent without tools gets the append flag and --no-tools", async 
 
 test("a tool name of this extension puts the extension file on the command line", async () => {
   const runsDir = mkdtempSync(join(tmpdir(), "runs-"));
-  const self = fileURLToPath(new URL("../../index.ts", import.meta.url));
 
   const run = createRun({
     ...rootLaunch({ ...agent, tools: ["read", "subagent", "subagent_stop"], model: undefined }),
@@ -207,24 +217,6 @@ test("the skill block goes to the child after the body of the agent file", async
     argv[argv.indexOf("--system-prompt") + 1],
     "You review code.\n\n<available_skills>review</available_skills>",
   );
-});
-
-test("an unknown tool name fails the launch and writes no run directory", () => {
-  const runsDir = mkdtempSync(join(tmpdir(), "runs-"));
-
-  assert.throws(
-    () =>
-      createRun({
-        ...rootLaunch({ ...agent, tools: ["read", "webserch"] }),
-        task: "Review the diff",
-        cwd: runsDir,
-        runsDir,
-        env: environment(runsDir, "0"),
-        timeoutMs: 0,
-      }),
-    /webserch/,
-  );
-  assert.deepEqual(readdirSync(runsDir), []);
 });
 
 test("a non-zero exit fails the run and keeps the transcript", async () => {
