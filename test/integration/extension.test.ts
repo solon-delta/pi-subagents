@@ -230,6 +230,20 @@ test("every turn carries the agents of the session in the system prompt", async 
   assert.match(prompt, /<name>explorer<\/name>/);
 });
 
+test("a second turn gets one block, because pi hands over the base prompt again", async () => {
+  const { runner, cwd } = await harness();
+
+  const first = await runner.emitBeforeAgentStart("Split this", undefined, "Base prompt.", { cwd });
+  // pi keeps the answer for one turn and passes the base prompt again, so the
+  // handler of the next turn must never see the block of the turn before it.
+  const second = await runner.emitBeforeAgentStart("Split this too", undefined, "Base prompt.", {
+    cwd,
+  });
+
+  assert.equal(second?.systemPrompt, first?.systemPrompt);
+  assert.equal(second?.systemPrompt?.match(/<available_agents>/g)?.length, 1);
+});
+
 test("an agent file with an unknown tool name fails the tool call", async () => {
   const { runner, sent, cwd, runsDir } = await harness();
   mkdirSync(join(cwd, CONFIG_DIR_NAME, "agents"), { recursive: true });
