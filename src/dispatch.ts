@@ -108,10 +108,15 @@ function agentsBlock(catalogue: AgentCatalogue, parent: Nesting, tools: ToolSour
 
     lines.push("  <agent>");
     lines.push(`    <name>${escapeXml(agent.name)}</name>`);
-    lines.push(`    <description>${escapeXml(agent.description)}</description>`);
+    // A file without the key says nothing, and an empty element says that too.
+    if (agent.description !== "") {
+      lines.push(`    <description>${escapeXml(agent.description)}</description>`);
+    }
     // The effective list, after the live tool list of this session narrowed it.
-    lines.push(`    <tools>${nesting.tools.join(", ")}</tools>`);
-    if (agent.skills.length > 0) lines.push(`    <skills>${agent.skills.join(", ")}</skills>`);
+    lines.push(`    <tools>${escapeXml(nesting.tools.join(", "))}</tools>`);
+    if (agent.skills.length > 0) {
+      lines.push(`    <skills>${escapeXml(agent.skills.join(", "))}</skills>`);
+    }
     lines.push("  </agent>");
   }
 
@@ -129,7 +134,7 @@ function agentsBlock(catalogue: AgentCatalogue, parent: Nesting, tools: ToolSour
 
 /**
  * One dispatcher per session. It reads the settings once, because the caller
- * builds it on the first tool call, when the project trust decision is settled.
+ * builds it on the first turn, when the project trust decision is settled.
  * A changed settings file needs a new session.
  */
 export function createDispatcher(host: Host): Dispatcher {
