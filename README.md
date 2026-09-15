@@ -1,8 +1,7 @@
 # pi-subagents
 
-A pi extension that adds a `subagent` tool. The main agent delegates a task to a
-named agent. The task runs in a child pi process. The answer arrives in the
-conversation as a new turn.
+A pi extension that adds a `subagent` tool. The main agent delegates a task to a named agent.
+The task runs in a child pi process. The answer arrives in the conversation as a new turn.
 
 ## Features
 
@@ -12,12 +11,10 @@ conversation as a new turn.
 - A transcript and a record on disk for every run.
 - A fleet view and a status line that show the runs of the session.
 
-## Use
+## Installation
 
-Load the extension with `pi -e ./index.ts`, or install the package.
-
-Write an agent file, then let the main agent call the `subagent` tool with the
-agent name and a task. Watch the runs with `/subagents`.
+This extension is not published on `npm`. It is intended to be vendored in.
+Either copy the files of this project to the extensions folder, or add it as a submodule when you use `git` to curate your setup.
 
 ## Documentation
 
@@ -31,6 +28,5 @@ agent name and a task. Watch the runs with `/subagents`.
 ## Development
 
 `make install` installs the dependencies. `make check` runs the type check.
-`make test` runs every test, `make test-unit` and `make test-integration` run
-one half each. `make lint` runs oxlint. Every target runs in a container, and
-CI calls the same targets.
+`make test` runs every test, `make test-unit` and `make test-integration` run one half each.
+`make lint` runs oxlint. Every target runs in a container, and CI calls the same targets.
